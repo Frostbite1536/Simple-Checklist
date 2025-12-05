@@ -183,7 +183,7 @@ class ChecklistApp:
         self.task_input.pack(fill=tk.X)
 
         hints = tk.Label(input_frame,
-                        text="💡 Shift+Enter: New task | Ctrl+Enter: Add sub-task | Ctrl+1-9: Switch categories",
+                        text="💡 Shift+Enter: New task | Enter: New line | Ctrl+1-9: Switch categories",
                         bg='#fafafa', fg='#7f8c8d',
                         font=('Segoe UI', 9))
         hints.pack(pady=5)
@@ -191,11 +191,15 @@ class ChecklistApp:
     def setup_shortcuts(self):
         """Setup keyboard shortcuts"""
         # Shift+Enter to add task
-        self.task_input.bind('<Shift-Return>', lambda e: self.add_task_from_input())
-        
+        def add_task_handler(e):
+            self.add_task_from_input()
+            return 'break'
+
+        self.task_input.bind('<Shift-Return>', add_task_handler)
+
         # Ctrl+1-9 to switch categories
         for i in range(1, 10):
-            self.root.bind(f'<Control-Key-{i}>', 
+            self.root.bind(f'<Control-Key-{i}>',
                           lambda e, idx=i-1: self.switch_category_by_index(idx))
     
     def render_categories(self):
@@ -369,7 +373,7 @@ class ChecklistApp:
     
     def switch_category_by_index(self, idx):
         """Switch category by index (for Ctrl+number shortcuts)"""
-        if idx < len(self.data['categories']):
+        if self.data['categories'] and 0 <= idx < len(self.data['categories']):
             self.switch_category(self.data['categories'][idx]['id'])
     
     def add_category_dialog(self):
@@ -406,8 +410,12 @@ class ChecklistApp:
         
         tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Add", command=add).pack(side=tk.LEFT, padx=5)
-        
-        entry.bind('<Return>', lambda e: add())
+
+        def on_return(e):
+            add()
+            return 'break'
+
+        entry.bind('<Return>', on_return)
     
     def delete_category(self, cat_id):
         """Delete a category"""
@@ -527,16 +535,23 @@ class ChecklistApp:
 
                 markdown += "\n"
 
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write(markdown)
-
-        messagebox.showinfo("Export Complete",
-                           f"Tasks exported to:\n{filename}")
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(markdown)
+            messagebox.showinfo("Export Complete",
+                               f"Tasks exported to:\n{filename}")
+        except (IOError, OSError) as e:
+            messagebox.showerror("Export Failed",
+                                f"Failed to export checklist:\n{str(e)}")
     
     def save_data(self):
         """Save data to JSON file"""
-        with open(self.data_file, 'w') as f:
-            json.dump(self.data, f, indent=2)
+        try:
+            with open(self.data_file, 'w') as f:
+                json.dump(self.data, f, indent=2)
+        except (IOError, OSError) as e:
+            messagebox.showerror("Error Saving Data",
+                                f"Failed to save checklist:\n{str(e)}")
     
     def load_data(self):
         """Load data from JSON file"""
@@ -544,13 +559,19 @@ class ChecklistApp:
             try:
                 with open(self.data_file, 'r') as f:
                     self.data = json.load(f)
-            except:
-                pass
+            except (json.JSONDecodeError, IOError, OSError) as e:
+                messagebox.showerror("Error Loading Data",
+                                    f"Failed to load checklist data:\n{str(e)}\n\nStarting with default categories.")
+                self.data = {'categories': [], 'current_category': None}
 
     def save_settings(self):
         """Save settings to JSON file"""
-        with open(self.settings_file, 'w') as f:
-            json.dump(self.settings, f, indent=2)
+        try:
+            with open(self.settings_file, 'w') as f:
+                json.dump(self.settings, f, indent=2)
+        except (IOError, OSError) as e:
+            messagebox.showerror("Error Saving Settings",
+                                f"Failed to save settings:\n{str(e)}")
 
     def load_settings(self):
         """Load settings from JSON file"""
@@ -559,7 +580,8 @@ class ChecklistApp:
                 with open(self.settings_file, 'r') as f:
                     loaded = json.load(f)
                     self.settings.update(loaded)
-            except:
+            except (json.JSONDecodeError, IOError, OSError):
+                # If settings file is corrupted, just use defaults
                 pass
 
     # Drag and Drop Methods
@@ -622,7 +644,11 @@ class ChecklistApp:
         tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Add", command=add).pack(side=tk.LEFT, padx=5)
 
-        entry.bind('<Return>', lambda e: add())
+        def on_return(e):
+            add()
+            return 'break'
+
+        entry.bind('<Return>', on_return)
 
     def toggle_subtask(self, task_idx, subtask_idx):
         """Toggle sub-task completion status"""
@@ -679,13 +705,32 @@ class ChecklistApp:
         """Load a specific checklist file"""
         try:
             with open(filename, 'r') as f:
-                self.data = json.load(f)
+                loaded_data = json.load(f)
+
+            # Validate the data structure
+            if not isinstance(loaded_data, dict):
+                raise ValueError("Invalid checklist format: root must be an object")
+
+            if 'categories' not in loaded_data:
+                raise ValueError("Invalid checklist format: missing 'categories' field")
+
+            if not isinstance(loaded_data['categories'], list):
+                raise ValueError("Invalid checklist format: 'categories' must be a list")
+
+            # Ensure current_category exists and is valid
+            if 'current_category' not in loaded_data or loaded_data['current_category'] is None:
+                if loaded_data['categories']:
+                    loaded_data['current_category'] = loaded_data['categories'][0].get('id', 1)
+                else:
+                    loaded_data['current_category'] = None
+
+            self.data = loaded_data
             self.data_file = filename
             self.add_to_recent_files(filename)
             self.render_categories()
             self.render_tasks()
             self.root.title(f"Simple Checklist - {os.path.basename(filename)}")
-        except Exception as e:
+        except (json.JSONDecodeError, IOError, OSError, ValueError) as e:
             messagebox.showerror("Error", f"Failed to load checklist:\n{str(e)}")
 
     def save_checklist_as(self):

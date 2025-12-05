@@ -22,30 +22,38 @@ def main():
         sys.exit(1)
 
     # Platform-specific configurations
+    process = None
     if system == 'Windows':
         print("Launching Simple Checklist on Windows...")
         # On Windows, use pythonw to avoid console window
         try:
-            subprocess.Popen(['pythonw', app_script])
+            process = subprocess.Popen(['pythonw', app_script])
         except FileNotFoundError:
             # Fall back to python if pythonw is not available
-            subprocess.Popen(['python', app_script])
+            print("pythonw not found, using python instead...")
+            process = subprocess.Popen(['python', app_script])
 
     elif system == 'Darwin':  # macOS
         print("Launching Simple Checklist on macOS...")
         # On macOS, use python3
-        subprocess.Popen(['python3', app_script])
+        process = subprocess.Popen(['python3', app_script])
 
     elif system == 'Linux':
         print("Launching Simple Checklist on Linux...")
         # On Linux, use python3
-        subprocess.Popen(['python3', app_script])
+        process = subprocess.Popen(['python3', app_script])
 
     else:
         print(f"Warning: Unknown platform '{system}', attempting to launch anyway...")
-        subprocess.Popen([sys.executable, app_script])
+        process = subprocess.Popen([sys.executable, app_script])
 
-    print("Simple Checklist launched successfully!")
+    # Verify the process started
+    if process and process.poll() is None:
+        print("Simple Checklist launched successfully!")
+    elif process:
+        print(f"Warning: Process exited immediately with code {process.returncode}")
+    else:
+        print("Warning: Unable to verify process launch")
 
 if __name__ == '__main__':
     try:
