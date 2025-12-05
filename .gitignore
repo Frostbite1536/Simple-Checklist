@@ -1,2 +1,29 @@
-﻿__pycache__/
+﻿# Python cache and bytecode
+__pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Virtual environments (if any)
+venv/
+env/
+.venv/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDE/editor folders
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Persistent app data (JSON storage in user's home directory, should not be tracked)
+.simple_checklist.json
+
+# Markdown exports
+*.md
+
+# Launch scripts do not need to be ignored
+# launch.py should be committed
