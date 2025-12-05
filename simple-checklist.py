@@ -38,7 +38,7 @@ class ChecklistApp:
         self.load_settings()
 
         # Drag and drop state
-        self.drag_data = {'source': None, 'index': None}
+        self.drag_data = {'source': None, 'index': None, 'start_y': None, 'dragging': False}
 
         # Load data
         self.load_data()
@@ -163,11 +163,14 @@ class ChecklistApp:
                                  command=self.canvas.yview)
         
         self.task_frame = tk.Frame(self.canvas, bg='white')
-        self.task_frame.bind('<Configure>', 
+        self.task_frame.bind('<Configure>',
                            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox('all')))
-        
-        self.canvas.create_window((0, 0), window=self.task_frame, anchor='nw', width=680)
+
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.task_frame, anchor='nw')
         self.canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Update canvas width when window resizes
+        self.canvas.bind('<Configure>', self.on_canvas_resize)
         
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=20, pady=10)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -183,7 +186,7 @@ class ChecklistApp:
         self.task_input.pack(fill=tk.X)
 
         hints = tk.Label(input_frame,
-                        text="💡 Shift+Enter: New task | Ctrl+Enter: Add sub-task | Ctrl+1-9: Switch categories",
+                        text="💡 Shift+Enter: New task | Ctrl+1-9: Switch categories",
                         bg='#fafafa', fg='#7f8c8d',
                         font=('Segoe UI', 9))
         hints.pack(pady=5)
@@ -192,11 +195,15 @@ class ChecklistApp:
         """Setup keyboard shortcuts"""
         # Shift+Enter to add task
         self.task_input.bind('<Shift-Return>', lambda e: self.add_task_from_input())
-        
+
         # Ctrl+1-9 to switch categories
         for i in range(1, 10):
-            self.root.bind(f'<Control-Key-{i}>', 
+            self.root.bind(f'<Control-Key-{i}>',
                           lambda e, idx=i-1: self.switch_category_by_index(idx))
+
+    def on_canvas_resize(self, event):
+        """Update canvas window width when canvas is resized"""
+        self.canvas.itemconfig(self.canvas_window, width=event.width)
     
     def render_categories(self):
         """Render the category list with drag-and-drop support"""
@@ -218,14 +225,13 @@ class ChecklistApp:
                           fg='white', relief=tk.FLAT,
                           anchor='w', padx=10, pady=8,
                           font=('Segoe UI', 10),
-                          command=lambda c=cat['id']: self.switch_category(c),
                           cursor='hand2')
             btn.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-            # Bind drag-and-drop events
-            btn.bind('<Button-1>', lambda e, i=idx: self.on_drag_start(e, i))
+            # Bind drag-and-drop events (no command - handled in release)
+            btn.bind('<Button-1>', lambda e, i=idx, c=cat['id']: self.on_drag_start(e, i, c))
             btn.bind('<B1-Motion>', self.on_drag_motion)
-            btn.bind('<ButtonRelease-1>', lambda e, i=idx: self.on_drag_release(e, i))
+            btn.bind('<ButtonRelease-1>', lambda e, i=idx, c=cat['id']: self.on_drag_release(e, i, c))
 
             del_btn = tk.Button(frame, text="×",
                               bg='#e74c3c', fg='white',
@@ -288,7 +294,7 @@ class ChecklistApp:
                 text_style['overstrike'] = True
 
             # Use Text widget for selectable/copyable text
-            task_text = tk.Text(main_row, height=1, width=50,
+            task_text = tk.Text(main_row, height=1,
                               bg='#f8f9fa', relief=tk.FLAT,
                               wrap=tk.WORD, **text_style)
             task_text.insert('1.0', task['text'])
@@ -311,17 +317,17 @@ class ChecklistApp:
                     sub_row = tk.Frame(subtasks_frame, bg='#f8f9fa')
                     sub_row.pack(fill=tk.X, pady=2)
 
-                    sub_var = tk.BooleanVar(value=subtask.get('completed', False))
+                    sub_var = tk.BooleanVar(value=subtask['completed'])
                     sub_cb = tk.Checkbutton(sub_row, variable=sub_var, bg='#f8f9fa',
                                           command=lambda i=idx, si=sub_idx: self.toggle_subtask(i, si))
                     sub_cb.pack(side=tk.LEFT)
 
                     sub_text_style = {'font': ('Segoe UI', 10), 'cursor': 'xterm'}
-                    if subtask.get('completed', False):
+                    if subtask['completed']:
                         sub_text_style['fg'] = '#7f8c8d'
                         sub_text_style['overstrike'] = True
 
-                    sub_text = tk.Text(sub_row, height=1, width=45,
+                    sub_text = tk.Text(sub_row, height=1,
                                      bg='#f8f9fa', relief=tk.FLAT,
                                      wrap=tk.WORD, **sub_text_style)
                     sub_text.insert('1.0', f"↳ {subtask['text']}")
@@ -388,18 +394,20 @@ class ChecklistApp:
         
         def add():
             name = entry.get().strip()
-            if name:
-                new_id = max([c['id'] for c in self.data['categories']], default=0) + 1
-                self.data['categories'].append({
-                    'id': new_id,
-                    'name': name,
-                    'tasks': []
-                })
-                self.data['current_category'] = new_id
-                self.save_data()
-                self.render_categories()
-                self.render_tasks()
-                dialog.destroy()
+            if not name:
+                messagebox.showwarning("Invalid Input", "Category name cannot be empty!")
+                return
+            new_id = max([c['id'] for c in self.data['categories']], default=0) + 1
+            self.data['categories'].append({
+                'id': new_id,
+                'name': name,
+                'tasks': []
+            })
+            self.data['current_category'] = new_id
+            self.save_data()
+            self.render_categories()
+            self.render_tasks()
+            dialog.destroy()
         
         btn_frame = tk.Frame(dialog)
         btn_frame.pack(pady=10)
@@ -427,18 +435,22 @@ class ChecklistApp:
     
     def add_task_from_input(self):
         """Add task from input field"""
+        # Get text and explicitly strip to handle Text widget's trailing newline
         text = self.task_input.get('1.0', tk.END).strip()
         if not text:
             return
-        
-        # Split by lines
+
+        # Split by lines and filter empty lines
         lines = [l.strip() for l in text.split('\n') if l.strip()]
         if not lines:
             return
-        
+
         main_task = lines[0]
+        if not main_task:
+            return
+
         notes = lines[1:] if len(lines) > 1 else []
-        
+
         category = self.get_current_category()
         if category:
             category['tasks'].append({
@@ -517,7 +529,7 @@ class ChecklistApp:
                     # Export sub-tasks
                     if task.get('subtasks'):
                         for subtask in task['subtasks']:
-                            sub_checkbox = '[x]' if subtask.get('completed', False) else '[ ]'
+                            sub_checkbox = '[x]' if subtask['completed'] else '[ ]'
                             markdown += f"  - {sub_checkbox} {subtask['text']}\n"
 
                     # Export notes
@@ -544,8 +556,23 @@ class ChecklistApp:
             try:
                 with open(self.data_file, 'r') as f:
                     self.data = json.load(f)
-            except:
+                # Migrate old data to ensure consistency
+                self.migrate_data()
+            except (json.JSONDecodeError, IOError, KeyError) as e:
+                messagebox.showerror("Error Loading Data",
+                                    f"Failed to load checklist data:\n{str(e)}\n\nStarting with default categories.")
+                # Keep default data structure instead of corrupted data
                 pass
+
+    def migrate_data(self):
+        """Migrate old data structures to current format"""
+        # Ensure all subtasks have 'completed' key
+        for category in self.data.get('categories', []):
+            for task in category.get('tasks', []):
+                if 'subtasks' in task:
+                    for subtask in task['subtasks']:
+                        if 'completed' not in subtask:
+                            subtask['completed'] = False
 
     def save_settings(self):
         """Save settings to JSON file"""
@@ -559,32 +586,46 @@ class ChecklistApp:
                 with open(self.settings_file, 'r') as f:
                     loaded = json.load(f)
                     self.settings.update(loaded)
-            except:
+            except (json.JSONDecodeError, IOError) as e:
+                # If settings fail to load, use defaults silently
+                # Settings are non-critical, so don't show error to user
                 pass
 
     # Drag and Drop Methods
-    def on_drag_start(self, event, index):
+    def on_drag_start(self, event, index, cat_id):
         """Start dragging a category"""
         self.drag_data['source'] = event.widget
         self.drag_data['index'] = index
+        self.drag_data['cat_id'] = cat_id
+        self.drag_data['start_y'] = event.y_root
+        self.drag_data['dragging'] = False
 
     def on_drag_motion(self, event):
         """Handle drag motion"""
-        if self.drag_data['source']:
-            self.drag_data['source'].config(cursor='fleur')
+        if self.drag_data['source'] and self.drag_data['start_y'] is not None:
+            # If moved more than 5 pixels, consider it a drag
+            if abs(event.y_root - self.drag_data['start_y']) > 5:
+                self.drag_data['dragging'] = True
+                self.drag_data['source'].config(cursor='fleur')
 
-    def on_drag_release(self, event, target_index):
-        """Handle drop event to reorder categories"""
+    def on_drag_release(self, event, target_index, cat_id):
+        """Handle drop event to reorder categories or switch category"""
         source_index = self.drag_data['index']
-        if source_index is not None and source_index != target_index:
-            # Reorder categories
+
+        if self.drag_data['dragging'] and source_index is not None and source_index != target_index:
+            # It was a drag - reorder categories
             category = self.data['categories'].pop(source_index)
             self.data['categories'].insert(target_index, category)
             self.save_data()
             self.render_categories()
+        elif not self.drag_data['dragging']:
+            # It was a click - switch category
+            self.switch_category(cat_id)
 
         # Reset drag data
-        self.drag_data = {'source': None, 'index': None}
+        if self.drag_data['source']:
+            self.drag_data['source'].config(cursor='hand2')
+        self.drag_data = {'source': None, 'index': None, 'start_y': None, 'dragging': False}
 
     # Sub-task Methods
     def add_subtask_dialog(self, task_idx):
@@ -603,18 +644,20 @@ class ChecklistApp:
 
         def add():
             text = entry.get().strip()
-            if text:
-                category = self.get_current_category()
-                if category and task_idx < len(category['tasks']):
-                    if 'subtasks' not in category['tasks'][task_idx]:
-                        category['tasks'][task_idx]['subtasks'] = []
-                    category['tasks'][task_idx]['subtasks'].append({
-                        'text': text,
-                        'completed': False
-                    })
-                    self.save_data()
-                    self.render_tasks()
-                    dialog.destroy()
+            if not text:
+                messagebox.showwarning("Invalid Input", "Sub-task text cannot be empty!")
+                return
+            category = self.get_current_category()
+            if category and task_idx < len(category['tasks']):
+                if 'subtasks' not in category['tasks'][task_idx]:
+                    category['tasks'][task_idx]['subtasks'] = []
+                category['tasks'][task_idx]['subtasks'].append({
+                    'text': text,
+                    'completed': False
+                })
+                self.save_data()
+                self.render_tasks()
+                dialog.destroy()
 
         btn_frame = tk.Frame(dialog)
         btn_frame.pack(pady=10)
@@ -630,7 +673,7 @@ class ChecklistApp:
         if category and task_idx < len(category['tasks']):
             task = category['tasks'][task_idx]
             if 'subtasks' in task and subtask_idx < len(task['subtasks']):
-                task['subtasks'][subtask_idx]['completed'] = not task['subtasks'][subtask_idx].get('completed', False)
+                task['subtasks'][subtask_idx]['completed'] = not task['subtasks'][subtask_idx]['completed']
                 self.save_data()
                 self.render_tasks()
 
@@ -648,23 +691,26 @@ class ChecklistApp:
     # File Management Methods
     def new_checklist(self):
         """Create a new checklist"""
-        if messagebox.askyesno("New Checklist", "Save current checklist before creating new?"):
-            self.save_data()
-
         filename = filedialog.asksaveasfilename(
             defaultextension=".json",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
             initialfile="new-checklist.json"
         )
 
-        if filename:
-            self.data_file = filename
-            self.data = {'categories': [], 'current_category': None}
-            self.init_default_categories()
-            self.add_to_recent_files(filename)
-            self.render_categories()
-            self.render_tasks()
-            self.root.title(f"Simple Checklist - {os.path.basename(filename)}")
+        if not filename:
+            return  # User cancelled, don't clear data
+
+        # Only ask to save after we know user didn't cancel
+        if messagebox.askyesno("New Checklist", "Save current checklist before creating new?"):
+            self.save_data()
+
+        self.data_file = filename
+        self.data = {'categories': [], 'current_category': None}
+        self.init_default_categories()
+        self.add_to_recent_files(filename)
+        self.render_categories()
+        self.render_tasks()
+        self.root.title(f"Simple Checklist - {os.path.basename(filename)}")
 
     def open_checklist(self):
         """Open an existing checklist file"""
@@ -677,16 +723,33 @@ class ChecklistApp:
 
     def load_checklist_file(self, filename):
         """Load a specific checklist file"""
+        # Keep backup of current data in case load fails
+        backup_data = self.data.copy()
+        backup_file = self.data_file
+
         try:
             with open(filename, 'r') as f:
-                self.data = json.load(f)
+                new_data = json.load(f)
+
+            # Validate data structure
+            if 'categories' not in new_data:
+                raise ValueError("Invalid checklist format: missing 'categories' field")
+
+            self.data = new_data
             self.data_file = filename
+            self.migrate_data()  # Ensure data consistency
             self.add_to_recent_files(filename)
             self.render_categories()
             self.render_tasks()
             self.root.title(f"Simple Checklist - {os.path.basename(filename)}")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load checklist:\n{str(e)}")
+            # Restore previous state on error
+            self.data = backup_data
+            self.data_file = backup_file
+            messagebox.showerror("Error", f"Failed to load checklist:\n{str(e)}\n\nPrevious checklist has been restored.")
+            # Re-render to ensure UI matches restored state
+            self.render_categories()
+            self.render_tasks()
 
     def save_checklist_as(self):
         """Save checklist to a new file"""
@@ -718,12 +781,35 @@ class ChecklistApp:
         if not self.settings['recent_files']:
             self.recent_menu.add_command(label="(No recent files)", state=tk.DISABLED)
         else:
+            has_valid_files = False
             for filepath in self.settings['recent_files']:
                 if os.path.exists(filepath):
+                    has_valid_files = True
                     self.recent_menu.add_command(
                         label=os.path.basename(filepath),
                         command=lambda f=filepath: self.load_checklist_file(f)
                     )
+                else:
+                    # Show non-existent files as disabled with indicator
+                    self.recent_menu.add_command(
+                        label=f"{os.path.basename(filepath)} (missing)",
+                        state=tk.DISABLED
+                    )
+
+            # Add separator and clear option if there are any files
+            if self.settings['recent_files']:
+                self.recent_menu.add_separator()
+                self.recent_menu.add_command(
+                    label="Clear Recent Files",
+                    command=self.clear_recent_files
+                )
+
+    def clear_recent_files(self):
+        """Clear the recent files list"""
+        if messagebox.askyesno("Clear Recent Files", "Clear all recent files from the list?"):
+            self.settings['recent_files'] = []
+            self.save_settings()
+            self.update_recent_menu()
 
     # Settings Methods
     def change_input_color(self):
