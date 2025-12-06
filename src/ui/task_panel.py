@@ -5,6 +5,7 @@ Handles scrollable task list with checkboxes, subtasks, and notes
 
 import tkinter as tk
 from tkinter import ttk
+import tkinter.font as tkfont
 
 
 class TaskPanel:
@@ -127,10 +128,12 @@ class TaskPanel:
                           command=lambda i=idx: self.on_toggle_task(i))
         cb.pack(side=tk.LEFT)
 
-        text_style = {'font': ('Segoe UI', 11), 'cursor': 'xterm'}
+        text_style = {'cursor': 'xterm'}
         if task['completed']:
             text_style['fg'] = '#7f8c8d'
-            text_style['overstrike'] = True
+            text_style['font'] = tkfont.Font(family='Segoe UI', size=11, overstrike=True)
+        else:
+            text_style['font'] = ('Segoe UI', 11)
 
         # Use Text widget for selectable/copyable text
         task_text = tk.Text(main_row, height=1,
@@ -184,10 +187,12 @@ class TaskPanel:
                                   self.on_toggle_subtask(i, si))
             sub_cb.pack(side=tk.LEFT)
 
-            sub_text_style = {'font': ('Segoe UI', 10), 'cursor': 'xterm'}
+            sub_text_style = {'cursor': 'xterm'}
             if subtask['completed']:
                 sub_text_style['fg'] = '#7f8c8d'
-                sub_text_style['overstrike'] = True
+                sub_text_style['font'] = tkfont.Font(family='Segoe UI', size=10, overstrike=True)
+            else:
+                sub_text_style['font'] = ('Segoe UI', 10)
 
             sub_text = tk.Text(sub_row, height=1,
                              bg='#f8f9fa', relief=tk.FLAT,
