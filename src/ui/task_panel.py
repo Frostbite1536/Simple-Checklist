@@ -13,7 +13,7 @@ class TaskPanel:
 
     def __init__(self, parent, on_toggle_task, on_delete_task,
                  on_add_subtask, on_toggle_subtask, on_delete_subtask,
-                 on_edit_task=None):
+                 on_edit_task=None, on_edit_subtask=None):
         """
         Initialize the task panel
 
@@ -25,6 +25,7 @@ class TaskPanel:
             on_toggle_subtask: Callback function(task_idx, subtask_idx) when subtask is toggled
             on_delete_subtask: Callback function(task_idx, subtask_idx) when subtask is deleted
             on_edit_task: Callback function(task_idx) when edit button is clicked
+            on_edit_subtask: Callback function(task_idx, subtask_idx) when subtask edit is clicked
         """
         self.on_toggle_task = on_toggle_task
         self.on_delete_task = on_delete_task
@@ -32,6 +33,7 @@ class TaskPanel:
         self.on_toggle_subtask = on_toggle_subtask
         self.on_delete_subtask = on_delete_subtask
         self.on_edit_task = on_edit_task
+        self.on_edit_subtask = on_edit_subtask
 
         # Create task container
         self.container = tk.Frame(parent, bg='white')
@@ -241,6 +243,29 @@ class TaskPanel:
                                    self.on_toggle_subtask(i, si))
             sub_cb.pack(side=tk.LEFT)
 
+            # Button frame for subtask actions - pack FIRST
+            sub_btn_frame = tk.Frame(sub_row, bg='#f8f9fa')
+            sub_btn_frame.pack(side=tk.RIGHT)
+
+            # Edit subtask button
+            if self.on_edit_subtask:
+                edit_sub_btn = tk.Button(sub_btn_frame, text="✎",
+                                        bg='#9b59b6', fg='white',
+                                        relief=tk.FLAT, width=2,
+                                        font=('Segoe UI', 9),
+                                        command=lambda i=task_idx, si=sub_idx:
+                                        self.on_edit_subtask(i, si))
+                edit_sub_btn.pack(side=tk.LEFT, padx=1)
+
+            # Delete sub-task button
+            del_sub_btn = tk.Button(sub_btn_frame, text="×",
+                                  bg='#e67e22', fg='white',
+                                  relief=tk.FLAT, width=2,
+                                  font=('Segoe UI', 9),
+                                  command=lambda i=task_idx, si=sub_idx:
+                                  self.on_delete_subtask(i, si))
+            del_sub_btn.pack(side=tk.LEFT, padx=1)
+
             sub_text_style = {'cursor': 'xterm'}
             if subtask['completed']:
                 sub_text_style['fg'] = '#7f8c8d'
@@ -248,20 +273,15 @@ class TaskPanel:
             else:
                 sub_text_style['font'] = ('Segoe UI', 10)
 
-            sub_text = tk.Text(sub_row, height=1,
+            # Calculate height for multi-line subtasks
+            line_count = subtask['text'].count('\n') + 1
+
+            sub_text = tk.Text(sub_row, height=line_count,
                              bg='#f8f9fa', relief=tk.FLAT,
                              wrap=tk.WORD, **sub_text_style)
             sub_text.insert('1.0', f"↳ {subtask['text']}")
             sub_text.config(state=tk.DISABLED)
             sub_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-            # Delete sub-task button
-            del_sub_btn = tk.Button(sub_row, text="×",
-                                  bg='#e67e22', fg='white',
-                                  relief=tk.FLAT, width=2,
-                                  command=lambda i=task_idx, si=sub_idx:
-                                  self.on_delete_subtask(i, si))
-            del_sub_btn.pack(side=tk.RIGHT)
 
     def _render_notes(self, parent, notes):
         """

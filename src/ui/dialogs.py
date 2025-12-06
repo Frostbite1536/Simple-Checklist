@@ -122,7 +122,7 @@ class AddSubtaskDialog:
 class EditTaskDialog:
     """Dialog for editing a task's text"""
 
-    def __init__(self, parent, current_text, on_save_callback):
+    def __init__(self, parent, current_text, on_save_callback, title="Edit Task"):
         """
         Initialize the edit task dialog
 
@@ -130,11 +130,12 @@ class EditTaskDialog:
             parent: Parent window
             current_text: Current task text to edit
             on_save_callback: Callback function(new_text) called when task is saved
+            title: Dialog title (default: "Edit Task")
         """
         self.on_save_callback = on_save_callback
 
         self.dialog = tk.Toplevel(parent)
-        self.dialog.title("Edit Task")
+        self.dialog.title(title)
         self.dialog.geometry("500x200")
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -143,7 +144,7 @@ class EditTaskDialog:
 
     def _setup_ui(self, current_text):
         """Setup the dialog UI"""
-        tk.Label(self.dialog, text="Task text (Shift+Enter for new line):").pack(pady=10)
+        tk.Label(self.dialog, text="Text (Shift+Enter for new line):").pack(pady=10)
 
         self.text_input = tk.Text(self.dialog, font=('Segoe UI', 11), height=4,
                                   relief=tk.SOLID, borderwidth=1)
