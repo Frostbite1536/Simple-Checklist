@@ -34,6 +34,9 @@ class Sidebar:
             'dragging': False
         }
 
+        # Store category button widgets for drop target detection
+        self.category_buttons = []
+
         # Create sidebar frame
         self.frame = tk.Frame(parent, bg='#2c3e50', width=200)
         self.frame.pack_propagate(False)
@@ -72,9 +75,10 @@ class Sidebar:
             categories: List of category dictionaries with 'id', 'name', and 'tasks'
             current_category_id: ID of the currently selected category
         """
-        # Clear existing widgets
+        # Clear existing widgets and button tracking
         for widget in self.category_frame.winfo_children():
             widget.destroy()
+        self.category_buttons = []
 
         # Create category buttons
         for idx, cat in enumerate(categories):
@@ -93,12 +97,15 @@ class Sidebar:
                           cursor='hand2')
             btn.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+            # Store button reference with its frame for drop target detection
+            self.category_buttons.append({'frame': frame, 'button': btn, 'index': idx})
+
             # Bind drag-and-drop events
             btn.bind('<Button-1>',
                     lambda e, i=idx, c=cat['id']: self._on_drag_start(e, i, c))
             btn.bind('<B1-Motion>', self._on_drag_motion)
             btn.bind('<ButtonRelease-1>',
-                    lambda e, i=idx, c=cat['id']: self._on_drag_release(e, i, c))
+                    lambda e, c=cat['id']: self._on_drag_release(e, c))
 
             # Delete button
             del_btn = tk.Button(frame, text="×",
@@ -123,13 +130,51 @@ class Sidebar:
                 self.drag_data['dragging'] = True
                 self.drag_data['source'].config(cursor='fleur')
 
-    def _on_drag_release(self, event, target_index, cat_id):
+    def _get_drop_target_index(self, y_root):
+        """
+        Determine which category index the mouse is over based on y coordinate
+
+        Args:
+            y_root: Root window y coordinate of mouse
+
+        Returns:
+            Target index for drop, or None if outside category area
+        """
+        for item in self.category_buttons:
+            frame = item['frame']
+            try:
+                # Get frame's position relative to screen
+                frame_y = frame.winfo_rooty()
+                frame_height = frame.winfo_height()
+
+                # Check if y_root is within this frame's bounds
+                if frame_y <= y_root < frame_y + frame_height:
+                    return item['index']
+            except tk.TclError:
+                continue
+
+        # If below all buttons, return last index
+        if self.category_buttons:
+            last_frame = self.category_buttons[-1]['frame']
+            try:
+                if y_root >= last_frame.winfo_rooty():
+                    return self.category_buttons[-1]['index']
+            except tk.TclError:
+                pass
+
+        return None
+
+    def _on_drag_release(self, event, cat_id):
         """Handle drop event to reorder categories or switch category"""
         source_index = self.drag_data['index']
 
-        if self.drag_data['dragging'] and source_index is not None and source_index != target_index:
-            # It was a drag - reorder categories
-            self.on_category_reorder(source_index, target_index)
+        if self.drag_data['dragging'] and source_index is not None:
+            # Calculate target index based on drop position
+            target_index = self._get_drop_target_index(event.y_root)
+
+            if target_index is not None and source_index != target_index:
+                # It was a drag - reorder categories
+                self.on_category_reorder(source_index, target_index)
         elif not self.drag_data['dragging']:
             # It was a click - switch category
             self.on_category_click(cat_id)
