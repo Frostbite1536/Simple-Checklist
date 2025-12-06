@@ -12,7 +12,8 @@ class TaskPanel:
     """Scrollable task display panel"""
 
     def __init__(self, parent, on_toggle_task, on_delete_task,
-                 on_add_subtask, on_toggle_subtask, on_delete_subtask):
+                 on_add_subtask, on_toggle_subtask, on_delete_subtask,
+                 on_edit_task=None):
         """
         Initialize the task panel
 
@@ -23,12 +24,14 @@ class TaskPanel:
             on_add_subtask: Callback function(task_idx) when add subtask is clicked
             on_toggle_subtask: Callback function(task_idx, subtask_idx) when subtask is toggled
             on_delete_subtask: Callback function(task_idx, subtask_idx) when subtask is deleted
+            on_edit_task: Callback function(task_idx) when edit button is clicked
         """
         self.on_toggle_task = on_toggle_task
         self.on_delete_task = on_delete_task
         self.on_add_subtask = on_add_subtask
         self.on_toggle_subtask = on_toggle_subtask
         self.on_delete_subtask = on_delete_subtask
+        self.on_edit_task = on_edit_task
 
         # Create task container
         self.container = tk.Frame(parent, bg='white')
@@ -135,20 +138,42 @@ class TaskPanel:
         else:
             text_style['font'] = ('Segoe UI', 11)
 
+        # Calculate height based on number of lines in text
+        line_count = task['text'].count('\n') + 1
+
         # Use Text widget for selectable/copyable text
-        task_text = tk.Text(main_row, height=1,
+        task_text = tk.Text(main_row, height=line_count,
                           bg='#f8f9fa', relief=tk.FLAT,
                           wrap=tk.WORD, **text_style)
         task_text.insert('1.0', task['text'])
         task_text.config(state=tk.DISABLED)
         task_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+        # Button frame for task actions
+        btn_frame = tk.Frame(main_row, bg='#f8f9fa')
+        btn_frame.pack(side=tk.RIGHT)
+
         # Add sub-task button
-        add_sub_btn = tk.Button(main_row, text="+",
+        add_sub_btn = tk.Button(btn_frame, text="+",
                                bg='#3498db', fg='white',
                                relief=tk.FLAT, width=2,
                                command=lambda i=idx: self.on_add_subtask(i))
-        add_sub_btn.pack(side=tk.RIGHT, padx=2)
+        add_sub_btn.pack(side=tk.LEFT, padx=2)
+
+        # Edit button
+        if self.on_edit_task:
+            edit_btn = tk.Button(btn_frame, text="✎",
+                                bg='#9b59b6', fg='white',
+                                relief=tk.FLAT, width=2,
+                                command=lambda i=idx: self.on_edit_task(i))
+            edit_btn.pack(side=tk.LEFT, padx=2)
+
+        # Delete button
+        del_btn = tk.Button(btn_frame, text="×",
+                          bg='#e74c3c', fg='white',
+                          relief=tk.FLAT, width=2,
+                          command=lambda i=idx: self.on_delete_task(i))
+        del_btn.pack(side=tk.LEFT, padx=2)
 
         # Render subtasks
         if task.get('subtasks'):
@@ -157,13 +182,6 @@ class TaskPanel:
         # Render notes
         if task.get('notes'):
             self._render_notes(content, task['notes'])
-
-        # Delete button
-        del_btn = tk.Button(task_widget, text="×",
-                          bg='#e74c3c', fg='white',
-                          relief=tk.FLAT, width=3,
-                          command=lambda i=idx: self.on_delete_task(i))
-        del_btn.pack(side=tk.RIGHT, padx=5)
 
     def _render_subtasks(self, parent, task_idx, subtasks):
         """

@@ -23,7 +23,8 @@ from src.ui import (
     TaskPanel,
     InputArea,
     AddCategoryDialog,
-    AddSubtaskDialog
+    AddSubtaskDialog,
+    EditTaskDialog
 )
 
 # Import business logic
@@ -114,7 +115,8 @@ class ChecklistApp:
             on_delete_task=self.delete_task,
             on_add_subtask=self.add_subtask_dialog,
             on_toggle_subtask=self.toggle_subtask,
-            on_delete_subtask=self.delete_subtask
+            on_delete_subtask=self.delete_subtask,
+            on_edit_task=self.edit_task_dialog
         )
         self.task_panel.pack(fill=tk.BOTH, expand=True)
 
@@ -211,22 +213,11 @@ class ChecklistApp:
         if not text:
             return
 
-        # Split by lines and filter empty lines
-        lines = [l.strip() for l in text.split('\n') if l.strip()]
-        if not lines:
-            return
-
-        main_task = lines[0]
-        if not main_task:
-            return
-
-        notes = lines[1:] if len(lines) > 1 else []
-
         category = self.get_current_category()
         if category:
             category['tasks'].append({
-                'text': main_task,
-                'notes': notes,
+                'text': text,
+                'notes': [],
                 'completed': False,
                 'created': datetime.now().isoformat()
             })
@@ -254,6 +245,21 @@ class ChecklistApp:
                 self.render_tasks()
                 self.sidebar.render_categories(self.data['categories'],
                                                self.data['current_category'])
+
+    def edit_task_dialog(self, task_idx):
+        """Show dialog to edit a task's text"""
+        category = self.get_current_category()
+        if not category or task_idx >= len(category['tasks']):
+            return
+
+        current_text = category['tasks'][task_idx]['text']
+
+        def on_save(new_text):
+            category['tasks'][task_idx]['text'] = new_text
+            self.save_data()
+            self.render_tasks()
+
+        EditTaskDialog(self.root, current_text, on_save)
 
     def clear_completed(self):
         """Clear all completed tasks"""
