@@ -153,10 +153,12 @@ class TaskPanel:
         main_row = tk.Frame(content, bg='#f8f9fa')
         main_row.pack(fill=tk.X)
 
-        # Checkbox with ttk for better appearance
+        # Checkbox with explicit styling for visibility
         var = tk.BooleanVar(value=task['completed'])
-        cb = ttk.Checkbutton(main_row, variable=var,
-                            command=lambda i=idx: self.on_toggle_task(i))
+        cb = tk.Checkbutton(main_row, variable=var, bg='#f8f9fa',
+                           activebackground='#f8f9fa',
+                           selectcolor='white',
+                           command=lambda i=idx: self.on_toggle_task(i))
         cb.pack(side=tk.LEFT)
 
         # Button frame for task actions - pack FIRST so it gets space
@@ -232,9 +234,11 @@ class TaskPanel:
             sub_row.pack(fill=tk.X, pady=2)
 
             sub_var = tk.BooleanVar(value=subtask['completed'])
-            sub_cb = ttk.Checkbutton(sub_row, variable=sub_var,
-                                    command=lambda i=task_idx, si=sub_idx:
-                                    self.on_toggle_subtask(i, si))
+            sub_cb = tk.Checkbutton(sub_row, variable=sub_var, bg='#f8f9fa',
+                                   activebackground='#f8f9fa',
+                                   selectcolor='white',
+                                   command=lambda i=task_idx, si=sub_idx:
+                                   self.on_toggle_subtask(i, si))
             sub_cb.pack(side=tk.LEFT)
 
             sub_text_style = {'cursor': 'xterm'}

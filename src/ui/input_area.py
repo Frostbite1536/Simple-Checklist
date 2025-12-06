@@ -24,11 +24,15 @@ class InputArea:
         # Create the input frame
         self.frame = tk.Frame(parent, bg='#fafafa')
 
+        # Input with visible border
         self.task_input = tk.Text(self.frame, height=3,
                                  font=('Segoe UI', 11),
-                                 relief=tk.FLAT, bg=self.input_bg_color,
-                                 borderwidth=2)
-        self.task_input.pack(fill=tk.X)
+                                 relief=tk.SOLID, bg=self.input_bg_color,
+                                 borderwidth=1,
+                                 highlightthickness=1,
+                                 highlightcolor='#3498db',
+                                 highlightbackground='#bdc3c7')
+        self.task_input.pack(fill=tk.X, padx=5, pady=5)
 
         hints = tk.Label(self.frame,
                         text="Shift+Enter: Add task | Enter: New line | Ctrl+1-9: Switch categories",
