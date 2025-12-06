@@ -7,6 +7,9 @@ import tkinter as tk
 from tkinter import messagebox
 from datetime import datetime, timedelta
 
+# Maximum character limit for category names
+MAX_CATEGORY_NAME_LENGTH = 17
+
 
 class AddCategoryDialog:
     """Dialog for adding a new category"""
@@ -54,6 +57,12 @@ class AddCategoryDialog:
         if not name:
             messagebox.showwarning("Invalid Input",
                                   "Category name cannot be empty!")
+            return
+
+        if len(name) > MAX_CATEGORY_NAME_LENGTH:
+            messagebox.showwarning("Invalid Input",
+                                  f"Category name cannot exceed {MAX_CATEGORY_NAME_LENGTH} characters!\n"
+                                  f"Current length: {len(name)}")
             return
 
         self.on_add_callback(name)
@@ -104,7 +113,10 @@ class AddSubtaskDialog:
 
     def _handle_return(self, event):
         """Handle Enter key - submit unless Shift is held"""
-        if not (event.state & 0x1):  # Shift not held
+        # Check if Shift is held using keysym for more reliable cross-platform behavior
+        # Fallback to event.state & 0x1 (Shift flag) if keysym check isn't sufficient
+        shift_held = (event.state & 0x1) or event.keysym in ('Shift_L', 'Shift_R')
+        if not shift_held:
             self._on_add()
             return 'break'
 
@@ -170,7 +182,10 @@ class EditTaskDialog:
 
     def _handle_return(self, event):
         """Handle Enter key - submit unless Shift is held"""
-        if not (event.state & 0x1):  # Shift not held
+        # Check if Shift is held using keysym for more reliable cross-platform behavior
+        # Fallback to event.state & 0x1 (Shift flag) if keysym check isn't sufficient
+        shift_held = (event.state & 0x1) or event.keysym in ('Shift_L', 'Shift_R')
+        if not shift_held:
             self._on_save()
             return 'break'
 
@@ -321,7 +336,8 @@ class ReminderDialog:
 
             reminder_time = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
 
-            if reminder_time <= datetime.now():
+            # Use < instead of <= to allow reminders set for the current minute
+            if reminder_time < datetime.now():
                 messagebox.showwarning("Invalid Time",
                                       "Reminder time must be in the future!")
                 return
@@ -336,4 +352,66 @@ class ReminderDialog:
     def _clear_reminder(self):
         """Clear the reminder"""
         self.on_set_callback(None)
+        self.dialog.destroy()
+
+
+class EditCategoryDialog:
+    """Dialog for editing a category's name"""
+
+    def __init__(self, parent, current_name, on_save_callback):
+        """
+        Initialize the edit category dialog
+
+        Args:
+            parent: Parent window
+            current_name: Current category name to edit
+            on_save_callback: Callback function(new_name) called when category is saved
+        """
+        self.on_save_callback = on_save_callback
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Edit Category")
+        self.dialog.geometry("300x120")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        self._setup_ui(current_name)
+
+    def _setup_ui(self, current_name):
+        """Setup the dialog UI"""
+        tk.Label(self.dialog,
+                 text=f"Category name (max {MAX_CATEGORY_NAME_LENGTH} chars):").pack(pady=10)
+
+        self.entry = tk.Entry(self.dialog, font=('Segoe UI', 11))
+        self.entry.pack(pady=5, padx=20, fill=tk.X)
+        self.entry.insert(0, current_name)
+        self.entry.focus()
+        self.entry.select_range(0, tk.END)
+
+        btn_frame = tk.Frame(self.dialog)
+        btn_frame.pack(pady=10)
+
+        tk.Button(btn_frame, text="Cancel",
+                 command=self.dialog.destroy).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Save",
+                 command=self._on_save).pack(side=tk.LEFT, padx=5)
+
+        # Bind Enter key
+        self.entry.bind('<Return>', lambda e: self._on_save())
+
+    def _on_save(self):
+        """Handle save button click"""
+        name = self.entry.get().strip()
+        if not name:
+            messagebox.showwarning("Invalid Input",
+                                  "Category name cannot be empty!")
+            return
+
+        if len(name) > MAX_CATEGORY_NAME_LENGTH:
+            messagebox.showwarning("Invalid Input",
+                                  f"Category name cannot exceed {MAX_CATEGORY_NAME_LENGTH} characters!\n"
+                                  f"Current length: {len(name)}")
+            return
+
+        self.on_save_callback(name)
         self.dialog.destroy()

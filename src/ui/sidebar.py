@@ -4,13 +4,17 @@ Displays categories with drag-and-drop reordering support
 """
 
 import tkinter as tk
+from tkinter import ttk
+
+# Maximum character limit for category names
+MAX_CATEGORY_NAME_LENGTH = 17
 
 
 class Sidebar:
-    """Category sidebar with drag-and-drop reordering"""
+    """Category sidebar with drag-and-drop reordering and scrollable category list"""
 
     def __init__(self, parent, on_category_click, on_category_delete,
-                 on_add_category, on_category_reorder):
+                 on_add_category, on_category_reorder, on_category_edit=None):
         """
         Initialize the sidebar
 
@@ -20,11 +24,13 @@ class Sidebar:
             on_category_delete: Callback function(cat_id) when delete is clicked
             on_add_category: Callback function() when add category button is clicked
             on_category_reorder: Callback function(from_idx, to_idx) when categories are reordered
+            on_category_edit: Callback function(cat_id, current_name) when edit is clicked
         """
         self.on_category_click = on_category_click
         self.on_category_delete = on_category_delete
         self.on_add_category = on_add_category
         self.on_category_reorder = on_category_reorder
+        self.on_category_edit = on_category_edit
 
         # Drag and drop state
         self.drag_data = {
@@ -48,16 +54,83 @@ class Sidebar:
                               pady=15)
         title_label.pack(fill=tk.X)
 
-        # Categories container
-        self.category_frame = tk.Frame(self.frame, bg='#2c3e50')
-        self.category_frame.pack(fill=tk.BOTH, expand=True, padx=10)
-
-        # Add category button
+        # Add category button at top (fixed position, always visible)
         add_cat_btn = tk.Button(self.frame, text="+ Add Category",
                                bg='#3498db', fg='white',
                                relief=tk.FLAT, pady=8,
                                command=self.on_add_category)
-        add_cat_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=10)
+        add_cat_btn.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        # Create scrollable container for categories
+        self._setup_scrollable_container()
+
+    def _setup_scrollable_container(self):
+        """Setup scrollable canvas for category list"""
+        # Container frame for canvas and scrollbar
+        scroll_container = tk.Frame(self.frame, bg='#2c3e50')
+        scroll_container.pack(fill=tk.BOTH, expand=True, padx=10)
+
+        # Canvas for scrolling
+        self.canvas = tk.Canvas(scroll_container, bg='#2c3e50',
+                                highlightthickness=0, width=180)
+
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(scroll_container, orient='vertical',
+                                  command=self.canvas.yview)
+
+        # Categories container frame inside canvas
+        self.category_frame = tk.Frame(self.canvas, bg='#2c3e50')
+        self.category_frame.bind('<Configure>',
+                                 lambda e: self.canvas.configure(
+                                     scrollregion=self.canvas.bbox('all')))
+
+        self.canvas_window = self.canvas.create_window((0, 0),
+                                                        window=self.category_frame,
+                                                        anchor='nw')
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Update canvas width when window resizes
+        self.canvas.bind('<Configure>', self._on_canvas_resize)
+
+        # Bind mouse wheel scrolling (local, not global)
+        self.canvas.bind('<Enter>', self._bind_mousewheel)
+        self.canvas.bind('<Leave>', self._unbind_mousewheel)
+
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def _on_canvas_resize(self, event):
+        """Update canvas window width when canvas is resized"""
+        self.canvas.itemconfig(self.canvas_window, width=event.width)
+
+    def _bind_mousewheel(self, event):
+        """Bind mousewheel when mouse enters canvas"""
+        self.canvas.bind('<MouseWheel>', self._on_mousewheel)
+        self.canvas.bind('<Button-4>', self._on_mousewheel_linux)
+        self.canvas.bind('<Button-5>', self._on_mousewheel_linux)
+        self.category_frame.bind('<MouseWheel>', self._on_mousewheel)
+        self.category_frame.bind('<Button-4>', self._on_mousewheel_linux)
+        self.category_frame.bind('<Button-5>', self._on_mousewheel_linux)
+
+    def _unbind_mousewheel(self, event):
+        """Unbind mousewheel when mouse leaves canvas"""
+        self.canvas.unbind('<MouseWheel>')
+        self.canvas.unbind('<Button-4>')
+        self.canvas.unbind('<Button-5>')
+        self.category_frame.unbind('<MouseWheel>')
+        self.category_frame.unbind('<Button-4>')
+        self.category_frame.unbind('<Button-5>')
+
+    def _on_mousewheel(self, event):
+        """Handle mousewheel scroll (Windows/Mac)"""
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+
+    def _on_mousewheel_linux(self, event):
+        """Handle mousewheel scroll (Linux)"""
+        if event.num == 4:
+            self.canvas.yview_scroll(-1, 'units')
+        elif event.num == 5:
+            self.canvas.yview_scroll(1, 'units')
 
     def pack(self, **kwargs):
         """Pack the sidebar frame"""
@@ -66,6 +139,12 @@ class Sidebar:
     def grid(self, **kwargs):
         """Grid the sidebar frame"""
         self.frame.grid(**kwargs)
+
+    def _truncate_name(self, name, max_length=MAX_CATEGORY_NAME_LENGTH):
+        """Truncate category name with ellipsis if too long"""
+        if len(name) > max_length:
+            return name[:max_length - 1] + "…"
+        return name
 
     def render_categories(self, categories, current_category_id):
         """
@@ -88,8 +167,12 @@ class Sidebar:
                            bg='#3498db' if is_active else '#2c3e50')
             frame.pack(fill=tk.X, pady=3)
 
+            # Truncate long category names and add task count
+            display_name = self._truncate_name(cat['name'])
+            btn_text = f"{display_name} ({len(cat['tasks'])})"
+
             btn = tk.Button(frame,
-                          text=f"{cat['name']} ({len(cat['tasks'])})",
+                          text=btn_text,
                           bg='#3498db' if is_active else '#2c3e50',
                           fg='white', relief=tk.FLAT,
                           anchor='w', padx=10, pady=8,
@@ -107,12 +190,27 @@ class Sidebar:
             btn.bind('<ButtonRelease-1>',
                     lambda e, c=cat['id']: self._on_drag_release(e, c))
 
+            # Button container for edit and delete (fixed width to prevent overflow)
+            btn_container = tk.Frame(frame, bg='#3498db' if is_active else '#2c3e50')
+            btn_container.pack(side=tk.RIGHT)
+
+            # Edit button (if callback provided)
+            if self.on_category_edit:
+                edit_btn = tk.Button(btn_container, text="✎",
+                                    bg='#9b59b6', fg='white',
+                                    relief=tk.FLAT, width=2,
+                                    font=('Segoe UI', 9),
+                                    command=lambda c=cat['id'], n=cat['name']:
+                                        self.on_category_edit(c, n))
+                edit_btn.pack(side=tk.LEFT, padx=1)
+
             # Delete button
-            del_btn = tk.Button(frame, text="×",
+            del_btn = tk.Button(btn_container, text="×",
                               bg='#e74c3c', fg='white',
-                              relief=tk.FLAT, width=3,
+                              relief=tk.FLAT, width=2,
+                              font=('Segoe UI', 9),
                               command=lambda c=cat['id']: self.on_category_delete(c))
-            del_btn.pack(side=tk.RIGHT)
+            del_btn.pack(side=tk.LEFT, padx=1)
 
     def _on_drag_start(self, event, index, cat_id):
         """Start dragging a category"""

@@ -68,15 +68,23 @@ class TaskPanel:
 
     def _bind_mousewheel(self, event):
         """Bind mousewheel when mouse enters canvas"""
-        self.canvas.bind_all('<MouseWheel>', self._on_mousewheel)
-        self.canvas.bind_all('<Button-4>', self._on_mousewheel_linux)
-        self.canvas.bind_all('<Button-5>', self._on_mousewheel_linux)
+        # Use bind() on canvas instead of bind_all() to avoid global binding conflicts
+        self.canvas.bind('<MouseWheel>', self._on_mousewheel)
+        self.canvas.bind('<Button-4>', self._on_mousewheel_linux)
+        self.canvas.bind('<Button-5>', self._on_mousewheel_linux)
+        # Also bind to the task_frame for events that occur on child widgets
+        self.task_frame.bind('<MouseWheel>', self._on_mousewheel)
+        self.task_frame.bind('<Button-4>', self._on_mousewheel_linux)
+        self.task_frame.bind('<Button-5>', self._on_mousewheel_linux)
 
     def _unbind_mousewheel(self, event):
         """Unbind mousewheel when mouse leaves canvas"""
-        self.canvas.unbind_all('<MouseWheel>')
-        self.canvas.unbind_all('<Button-4>')
-        self.canvas.unbind_all('<Button-5>')
+        self.canvas.unbind('<MouseWheel>')
+        self.canvas.unbind('<Button-4>')
+        self.canvas.unbind('<Button-5>')
+        self.task_frame.unbind('<MouseWheel>')
+        self.task_frame.unbind('<Button-4>')
+        self.task_frame.unbind('<Button-5>')
 
     def _on_mousewheel(self, event):
         """Handle mousewheel scroll (Windows/Mac)"""
@@ -287,9 +295,11 @@ class TaskPanel:
                 sub_text_style['fg'] = '#2c3e50'
                 sub_text_style['font'] = ('Segoe UI', 10)
 
-            # Use Label for subtasks - auto-sizes properly
+            # Use Label for subtasks with wraplength for long text
+            # wraplength=400 allows text to wrap within the panel width
             sub_text = tk.Label(sub_row, text=f"↳ {subtask['text']}",
                                bg='#f8f9fa', anchor='w', justify=tk.LEFT,
+                               wraplength=400,
                                **sub_text_style)
             sub_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
