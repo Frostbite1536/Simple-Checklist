@@ -5,6 +5,7 @@ Reusable dialog components for user interactions
 
 import tkinter as tk
 from tkinter import messagebox
+from datetime import datetime, timedelta
 
 
 class AddCategoryDialog:
@@ -182,4 +183,157 @@ class EditTaskDialog:
             return
 
         self.on_save_callback(text)
+        self.dialog.destroy()
+
+
+class ReminderDialog:
+    """Dialog for setting a reminder on a task"""
+
+    def __init__(self, parent, task_text, on_set_callback, current_reminder=None):
+        """
+        Initialize the reminder dialog
+
+        Args:
+            parent: Parent window
+            task_text: Text of the task (for display)
+            on_set_callback: Callback function(datetime_iso) called when reminder is set
+            current_reminder: Current reminder datetime ISO string (if editing)
+        """
+        self.on_set_callback = on_set_callback
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Set Reminder")
+        self.dialog.geometry("400x320")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        self._setup_ui(task_text, current_reminder)
+
+    def _setup_ui(self, task_text, current_reminder):
+        """Setup the dialog UI"""
+        # Task preview
+        preview_text = task_text[:50] + "..." if len(task_text) > 50 else task_text
+        tk.Label(self.dialog, text=f"Task: {preview_text}",
+                font=('Segoe UI', 10), fg='#7f8c8d').pack(pady=(10, 5))
+
+        # Relative time section
+        rel_frame = tk.LabelFrame(self.dialog, text="Remind me in...", padx=10, pady=10)
+        rel_frame.pack(fill=tk.X, padx=20, pady=10)
+
+        time_row = tk.Frame(rel_frame)
+        time_row.pack(fill=tk.X)
+
+        # Minutes
+        tk.Label(time_row, text="Min:").pack(side=tk.LEFT)
+        self.minutes_var = tk.StringVar(value="0")
+        self.minutes_entry = tk.Entry(time_row, textvariable=self.minutes_var, width=5)
+        self.minutes_entry.pack(side=tk.LEFT, padx=(2, 10))
+
+        # Hours
+        tk.Label(time_row, text="Hours:").pack(side=tk.LEFT)
+        self.hours_var = tk.StringVar(value="0")
+        self.hours_entry = tk.Entry(time_row, textvariable=self.hours_var, width=5)
+        self.hours_entry.pack(side=tk.LEFT, padx=(2, 10))
+
+        # Days
+        tk.Label(time_row, text="Days:").pack(side=tk.LEFT)
+        self.days_var = tk.StringVar(value="0")
+        self.days_entry = tk.Entry(time_row, textvariable=self.days_var, width=5)
+        self.days_entry.pack(side=tk.LEFT, padx=(2, 0))
+
+        tk.Button(rel_frame, text="Set Relative Reminder",
+                 command=self._set_relative, bg='#3498db', fg='white',
+                 relief=tk.FLAT).pack(pady=(10, 0))
+
+        # Specific date/time section
+        abs_frame = tk.LabelFrame(self.dialog, text="Or set specific date/time", padx=10, pady=10)
+        abs_frame.pack(fill=tk.X, padx=20, pady=10)
+
+        date_row = tk.Frame(abs_frame)
+        date_row.pack(fill=tk.X)
+
+        # Date
+        tk.Label(date_row, text="Date (YYYY-MM-DD):").pack(side=tk.LEFT)
+        now = datetime.now()
+        self.date_var = tk.StringVar(value=now.strftime("%Y-%m-%d"))
+        self.date_entry = tk.Entry(date_row, textvariable=self.date_var, width=12)
+        self.date_entry.pack(side=tk.LEFT, padx=(5, 15))
+
+        # Time
+        tk.Label(date_row, text="Time (HH:MM):").pack(side=tk.LEFT)
+        self.time_var = tk.StringVar(value=now.strftime("%H:%M"))
+        self.time_entry = tk.Entry(date_row, textvariable=self.time_var, width=8)
+        self.time_entry.pack(side=tk.LEFT, padx=(5, 0))
+
+        tk.Button(abs_frame, text="Set Specific Reminder",
+                 command=self._set_absolute, bg='#27ae60', fg='white',
+                 relief=tk.FLAT).pack(pady=(10, 0))
+
+        # Current reminder display
+        if current_reminder:
+            try:
+                reminder_dt = datetime.fromisoformat(current_reminder)
+                tk.Label(self.dialog,
+                        text=f"Current reminder: {reminder_dt.strftime('%Y-%m-%d %H:%M')}",
+                        font=('Segoe UI', 9), fg='#e67e22').pack(pady=5)
+            except ValueError:
+                pass
+
+        # Bottom buttons
+        btn_frame = tk.Frame(self.dialog)
+        btn_frame.pack(pady=10)
+
+        tk.Button(btn_frame, text="Cancel",
+                 command=self.dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+        if current_reminder:
+            tk.Button(btn_frame, text="Clear Reminder",
+                     command=self._clear_reminder, bg='#e74c3c', fg='white',
+                     relief=tk.FLAT).pack(side=tk.LEFT, padx=5)
+
+    def _set_relative(self):
+        """Set reminder based on relative time"""
+        try:
+            minutes = int(self.minutes_var.get() or 0)
+            hours = int(self.hours_var.get() or 0)
+            days = int(self.days_var.get() or 0)
+
+            if minutes == 0 and hours == 0 and days == 0:
+                messagebox.showwarning("Invalid Input",
+                                      "Please enter at least one time value!")
+                return
+
+            reminder_time = datetime.now() + timedelta(
+                days=days, hours=hours, minutes=minutes
+            )
+            self.on_set_callback(reminder_time.isoformat())
+            self.dialog.destroy()
+
+        except ValueError:
+            messagebox.showwarning("Invalid Input",
+                                  "Please enter valid numbers!")
+
+    def _set_absolute(self):
+        """Set reminder based on absolute date/time"""
+        try:
+            date_str = self.date_var.get()
+            time_str = self.time_var.get()
+
+            reminder_time = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+
+            if reminder_time <= datetime.now():
+                messagebox.showwarning("Invalid Time",
+                                      "Reminder time must be in the future!")
+                return
+
+            self.on_set_callback(reminder_time.isoformat())
+            self.dialog.destroy()
+
+        except ValueError:
+            messagebox.showwarning("Invalid Input",
+                                  "Please enter valid date (YYYY-MM-DD) and time (HH:MM)!")
+
+    def _clear_reminder(self):
+        """Clear the reminder"""
+        self.on_set_callback(None)
         self.dialog.destroy()
