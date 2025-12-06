@@ -54,9 +54,36 @@ class TaskPanel:
         # Update canvas width when window resizes
         self.canvas.bind('<Configure>', self._on_canvas_resize)
 
+        # Bind mouse wheel scrolling
+        self.canvas.bind('<Enter>', self._bind_mousewheel)
+        self.canvas.bind('<Leave>', self._unbind_mousewheel)
+
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True,
                         padx=20, pady=10)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def _bind_mousewheel(self, event):
+        """Bind mousewheel when mouse enters canvas"""
+        self.canvas.bind_all('<MouseWheel>', self._on_mousewheel)
+        self.canvas.bind_all('<Button-4>', self._on_mousewheel_linux)
+        self.canvas.bind_all('<Button-5>', self._on_mousewheel_linux)
+
+    def _unbind_mousewheel(self, event):
+        """Unbind mousewheel when mouse leaves canvas"""
+        self.canvas.unbind_all('<MouseWheel>')
+        self.canvas.unbind_all('<Button-4>')
+        self.canvas.unbind_all('<Button-5>')
+
+    def _on_mousewheel(self, event):
+        """Handle mousewheel scroll (Windows/Mac)"""
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+
+    def _on_mousewheel_linux(self, event):
+        """Handle mousewheel scroll (Linux)"""
+        if event.num == 4:
+            self.canvas.yview_scroll(-1, 'units')
+        elif event.num == 5:
+            self.canvas.yview_scroll(1, 'units')
 
     def pack(self, **kwargs):
         """Pack the task panel container"""
@@ -126,11 +153,42 @@ class TaskPanel:
         main_row = tk.Frame(content, bg='#f8f9fa')
         main_row.pack(fill=tk.X)
 
+        # Checkbox with ttk for better appearance
         var = tk.BooleanVar(value=task['completed'])
-        cb = tk.Checkbutton(main_row, variable=var, bg='#f8f9fa',
-                          command=lambda i=idx: self.on_toggle_task(i))
+        cb = ttk.Checkbutton(main_row, variable=var,
+                            command=lambda i=idx: self.on_toggle_task(i))
         cb.pack(side=tk.LEFT)
 
+        # Button frame for task actions - pack FIRST so it gets space
+        btn_frame = tk.Frame(main_row, bg='#f8f9fa')
+        btn_frame.pack(side=tk.RIGHT, padx=(5, 0))
+
+        # Add sub-task button
+        add_sub_btn = tk.Button(btn_frame, text="+",
+                               bg='#3498db', fg='white',
+                               relief=tk.FLAT, width=3,
+                               font=('Segoe UI', 10, 'bold'),
+                               command=lambda i=idx: self.on_add_subtask(i))
+        add_sub_btn.pack(side=tk.LEFT, padx=1)
+
+        # Edit button
+        if self.on_edit_task:
+            edit_btn = tk.Button(btn_frame, text="✎",
+                                bg='#9b59b6', fg='white',
+                                relief=tk.FLAT, width=3,
+                                font=('Segoe UI', 10),
+                                command=lambda i=idx: self.on_edit_task(i))
+            edit_btn.pack(side=tk.LEFT, padx=1)
+
+        # Delete button
+        del_btn = tk.Button(btn_frame, text="×",
+                          bg='#e74c3c', fg='white',
+                          relief=tk.FLAT, width=3,
+                          font=('Segoe UI', 10, 'bold'),
+                          command=lambda i=idx: self.on_delete_task(i))
+        del_btn.pack(side=tk.LEFT, padx=1)
+
+        # Text styling
         text_style = {'cursor': 'xterm'}
         if task['completed']:
             text_style['fg'] = '#7f8c8d'
@@ -141,39 +199,13 @@ class TaskPanel:
         # Calculate height based on number of lines in text
         line_count = task['text'].count('\n') + 1
 
-        # Use Text widget for selectable/copyable text
+        # Use Text widget for selectable/copyable text - pack AFTER buttons
         task_text = tk.Text(main_row, height=line_count,
                           bg='#f8f9fa', relief=tk.FLAT,
                           wrap=tk.WORD, **text_style)
         task_text.insert('1.0', task['text'])
         task_text.config(state=tk.DISABLED)
         task_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        # Button frame for task actions
-        btn_frame = tk.Frame(main_row, bg='#f8f9fa')
-        btn_frame.pack(side=tk.RIGHT)
-
-        # Add sub-task button
-        add_sub_btn = tk.Button(btn_frame, text="+",
-                               bg='#3498db', fg='white',
-                               relief=tk.FLAT, width=2,
-                               command=lambda i=idx: self.on_add_subtask(i))
-        add_sub_btn.pack(side=tk.LEFT, padx=2)
-
-        # Edit button
-        if self.on_edit_task:
-            edit_btn = tk.Button(btn_frame, text="✎",
-                                bg='#9b59b6', fg='white',
-                                relief=tk.FLAT, width=2,
-                                command=lambda i=idx: self.on_edit_task(i))
-            edit_btn.pack(side=tk.LEFT, padx=2)
-
-        # Delete button
-        del_btn = tk.Button(btn_frame, text="×",
-                          bg='#e74c3c', fg='white',
-                          relief=tk.FLAT, width=2,
-                          command=lambda i=idx: self.on_delete_task(i))
-        del_btn.pack(side=tk.LEFT, padx=2)
 
         # Render subtasks
         if task.get('subtasks'):
@@ -200,9 +232,9 @@ class TaskPanel:
             sub_row.pack(fill=tk.X, pady=2)
 
             sub_var = tk.BooleanVar(value=subtask['completed'])
-            sub_cb = tk.Checkbutton(sub_row, variable=sub_var, bg='#f8f9fa',
-                                  command=lambda i=task_idx, si=sub_idx:
-                                  self.on_toggle_subtask(i, si))
+            sub_cb = ttk.Checkbutton(sub_row, variable=sub_var,
+                                    command=lambda i=task_idx, si=sub_idx:
+                                    self.on_toggle_subtask(i, si))
             sub_cb.pack(side=tk.LEFT)
 
             sub_text_style = {'cursor': 'xterm'}
