@@ -25,6 +25,7 @@ from src.ui import (
     AddCategoryDialog,
     AddSubtaskDialog,
     EditTaskDialog,
+    EditCategoryDialog,
     ReminderDialog
 )
 
@@ -112,7 +113,8 @@ class ChecklistApp:
             on_category_click=self.switch_category,
             on_category_delete=self.delete_category,
             on_add_category=self.add_category_dialog,
-            on_category_reorder=self.reorder_categories
+            on_category_reorder=self.reorder_categories,
+            on_category_edit=self.edit_category_dialog
         )
         self.sidebar.pack(fill=tk.BOTH, expand=True)
 
@@ -141,12 +143,25 @@ class ChecklistApp:
     def setup_shortcuts(self):
         """Setup keyboard shortcuts"""
         # Ctrl+1-9 to switch categories
+        # Bug #11 fix: Check if input area has focus before processing shortcut
         for i in range(1, 10):
             self.root.bind(f'<Control-Key-{i}>',
-                          lambda e, idx=i-1: self.switch_category_by_index(idx))
+                          lambda e, idx=i-1: self._handle_category_shortcut(idx))
 
         # Start reminder checker
         self.check_reminders()
+
+    def _handle_category_shortcut(self, idx):
+        """Handle category switching shortcut, ignoring if input has focus"""
+        # Bug #11 fix: Don't switch categories if input area is focused
+        try:
+            focused_widget = self.root.focus_get()
+            # Check if focus is on the input area's text widget
+            if hasattr(self, 'input_area') and self.input_area.has_focus():
+                return  # Ignore shortcut when input is focused
+        except (KeyError, AttributeError):
+            pass
+        self.switch_category_by_index(idx)
 
     def render_tasks(self):
         """Render tasks for current category"""
@@ -214,11 +229,29 @@ class ChecklistApp:
             self.data['categories'] = [c for c in self.data['categories']
                                       if c['id'] != cat_id]
             if self.data['current_category'] == cat_id:
-                self.data['current_category'] = self.data['categories'][0]['id']
+                # Bug #5 fix: Add safety check before accessing [0]
+                if self.data['categories']:
+                    self.data['current_category'] = self.data['categories'][0]['id']
+                else:
+                    self.data['current_category'] = None
             self.save_data()
             self.sidebar.render_categories(self.data['categories'],
                                            self.data['current_category'])
             self.render_tasks()
+
+    def edit_category_dialog(self, cat_id, current_name):
+        """Show dialog to edit category name"""
+        def on_save(new_name):
+            for cat in self.data['categories']:
+                if cat['id'] == cat_id:
+                    cat['name'] = new_name
+                    break
+            self.save_data()
+            self.sidebar.render_categories(self.data['categories'],
+                                           self.data['current_category'])
+            self.render_tasks()
+
+        EditCategoryDialog(self.root, current_name, on_save)
 
     def add_task_from_input(self):
         """Add task from input field"""
@@ -370,6 +403,7 @@ class ChecklistApp:
         now = datetime.now()
         reminders_triggered = []
 
+        corrupted_reminders = []
         for category in self.data.get('categories', []):
             for task in category.get('tasks', []):
                 reminder = task.get('reminder')
@@ -383,18 +417,26 @@ class ChecklistApp:
                                 'task_obj': task
                             })
                     except ValueError:
-                        pass
+                        # Bug #8 fix: Clear corrupted reminder data instead of silently ignoring
+                        corrupted_reminders.append(task)
+
+        # Clear any corrupted reminders
+        for task in corrupted_reminders:
+            task['reminder'] = None
 
         # Show notifications for triggered reminders
+        # Bug #2 fix: Clear reminder in try-finally to ensure it's cleared even if notification fails
         for reminder_info in reminders_triggered:
-            self.show_notification(
-                title=f"Reminder: {reminder_info['category']}",
-                message=reminder_info['task'][:100]
-            )
-            # Clear the reminder after showing
-            reminder_info['task_obj']['reminder'] = None
+            try:
+                self.show_notification(
+                    title=f"Reminder: {reminder_info['category']}",
+                    message=reminder_info['task'][:100]
+                )
+            finally:
+                # Clear the reminder regardless of notification success/failure
+                reminder_info['task_obj']['reminder'] = None
 
-        if reminders_triggered:
+        if reminders_triggered or corrupted_reminders:
             self.save_data()
             self.render_tasks()
 
@@ -479,15 +521,42 @@ class ChecklistApp:
     def load_data(self):
         """Load data from JSON file"""
         if os.path.exists(self.data_file):
+            # Bug #12 fix: Create backup before loading in case file is corrupted
+            backup_file = self.data_file + '.backup'
+            try:
+                # Only create backup if file exists and is non-empty
+                if os.path.getsize(self.data_file) > 0:
+                    import shutil
+                    shutil.copy2(self.data_file, backup_file)
+            except (IOError, OSError):
+                pass  # Backup creation is best-effort
+
             try:
                 with open(self.data_file, 'r') as f:
                     self.data = json.load(f)
                 # Migrate old data to ensure consistency
                 self.migrate_data()
             except (json.JSONDecodeError, IOError, OSError, KeyError) as e:
-                messagebox.showerror("Error Loading Data",
-                                    f"Failed to load checklist data:\n{str(e)}\n\nStarting with default categories.")
-                self.data = {'categories': [], 'current_category': None}
+                # Bug #12 fix: Try to recover from backup
+                recovered = False
+                if os.path.exists(backup_file):
+                    try:
+                        with open(backup_file, 'r') as f:
+                            self.data = json.load(f)
+                        self.migrate_data()
+                        recovered = True
+                        messagebox.showwarning("Data Recovery",
+                                              f"Original file was corrupted:\n{str(e)}\n\n"
+                                              "Data has been restored from backup.")
+                    except (json.JSONDecodeError, IOError, OSError, KeyError):
+                        pass  # Backup also corrupted
+
+                if not recovered:
+                    messagebox.showerror("Error Loading Data",
+                                        f"Failed to load checklist data:\n{str(e)}\n\n"
+                                        f"Starting with default categories.\n"
+                                        f"A backup may exist at: {backup_file}")
+                    self.data = {'categories': [], 'current_category': None}
 
     def migrate_data(self):
         """Migrate old data structures to current format"""
@@ -519,6 +588,20 @@ class ChecklistApp:
                 # If settings fail to load, use defaults silently
                 # Settings are non-critical, so don't show error to user
                 pass
+        # Bug #3 fix: Clean up non-existent files from recent files list
+        self.cleanup_recent_files()
+
+    def cleanup_recent_files(self):
+        """Remove non-existent files from recent files list"""
+        if 'recent_files' in self.settings:
+            original_count = len(self.settings['recent_files'])
+            self.settings['recent_files'] = [
+                f for f in self.settings['recent_files']
+                if os.path.exists(f)
+            ]
+            # Save if any files were removed
+            if len(self.settings['recent_files']) < original_count:
+                self.save_settings()
 
     def new_checklist(self):
         """Create a new checklist"""
