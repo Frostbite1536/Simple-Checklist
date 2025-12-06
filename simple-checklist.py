@@ -116,7 +116,8 @@ class ChecklistApp:
             on_add_subtask=self.add_subtask_dialog,
             on_toggle_subtask=self.toggle_subtask,
             on_delete_subtask=self.delete_subtask,
-            on_edit_task=self.edit_task_dialog
+            on_edit_task=self.edit_task_dialog,
+            on_edit_subtask=self.edit_subtask_dialog
         )
         self.task_panel.pack(fill=tk.BOTH, expand=True)
 
@@ -316,6 +317,25 @@ class ChecklistApp:
                     del task['subtasks'][subtask_idx]
                     self.save_data()
                     self.render_tasks()
+
+    def edit_subtask_dialog(self, task_idx, subtask_idx):
+        """Show dialog to edit a subtask's text"""
+        category = self.get_current_category()
+        if not category or task_idx >= len(category['tasks']):
+            return
+
+        task = category['tasks'][task_idx]
+        if 'subtasks' not in task or subtask_idx >= len(task['subtasks']):
+            return
+
+        current_text = task['subtasks'][subtask_idx]['text']
+
+        def on_save(new_text):
+            task['subtasks'][subtask_idx]['text'] = new_text
+            self.save_data()
+            self.render_tasks()
+
+        EditTaskDialog(self.root, current_text, on_save, title="Edit Sub-task")
 
     def export_markdown(self):
         """Export all tasks to Markdown file with timestamps"""
