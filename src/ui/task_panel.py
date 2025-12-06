@@ -266,21 +266,18 @@ class TaskPanel:
                                   self.on_delete_subtask(i, si))
             del_sub_btn.pack(side=tk.LEFT, padx=1)
 
-            sub_text_style = {'cursor': 'xterm'}
+            sub_text_style = {}
             if subtask['completed']:
                 sub_text_style['fg'] = '#7f8c8d'
                 sub_text_style['font'] = tkfont.Font(family='Segoe UI', size=10, overstrike=True)
             else:
+                sub_text_style['fg'] = '#2c3e50'
                 sub_text_style['font'] = ('Segoe UI', 10)
 
-            # Calculate height for multi-line subtasks
-            line_count = subtask['text'].count('\n') + 1
-
-            sub_text = tk.Text(sub_row, height=line_count,
-                             bg='#f8f9fa', relief=tk.FLAT,
-                             wrap=tk.WORD, **sub_text_style)
-            sub_text.insert('1.0', f"↳ {subtask['text']}")
-            sub_text.config(state=tk.DISABLED)
+            # Use Label for subtasks - auto-sizes properly
+            sub_text = tk.Label(sub_row, text=f"↳ {subtask['text']}",
+                               bg='#f8f9fa', anchor='w', justify=tk.LEFT,
+                               **sub_text_style)
             sub_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def _render_notes(self, parent, notes):
