@@ -24,8 +24,16 @@ from src.ui import (
     InputArea,
     AddCategoryDialog,
     AddSubtaskDialog,
-    EditTaskDialog
+    EditTaskDialog,
+    ReminderDialog
 )
+
+# Try to import plyer for cross-platform notifications
+try:
+    from plyer import notification as plyer_notification
+    HAS_PLYER = True
+except ImportError:
+    HAS_PLYER = False
 
 # Import business logic
 from src.models import Category, Task, Checklist
@@ -117,7 +125,8 @@ class ChecklistApp:
             on_toggle_subtask=self.toggle_subtask,
             on_delete_subtask=self.delete_subtask,
             on_edit_task=self.edit_task_dialog,
-            on_edit_subtask=self.edit_subtask_dialog
+            on_edit_subtask=self.edit_subtask_dialog,
+            on_set_reminder=self.set_reminder_dialog
         )
         self.task_panel.pack(fill=tk.BOTH, expand=True)
 
@@ -135,6 +144,9 @@ class ChecklistApp:
         for i in range(1, 10):
             self.root.bind(f'<Control-Key-{i}>',
                           lambda e, idx=i-1: self.switch_category_by_index(idx))
+
+        # Start reminder checker
+        self.check_reminders()
 
     def render_tasks(self):
         """Render tasks for current category"""
@@ -336,6 +348,76 @@ class ChecklistApp:
             self.render_tasks()
 
         EditTaskDialog(self.root, current_text, on_save, title="Edit Sub-task")
+
+    def set_reminder_dialog(self, task_idx):
+        """Show dialog to set a reminder for a task"""
+        category = self.get_current_category()
+        if not category or task_idx >= len(category['tasks']):
+            return
+
+        task = category['tasks'][task_idx]
+        current_reminder = task.get('reminder')
+
+        def on_set(reminder_iso):
+            task['reminder'] = reminder_iso
+            self.save_data()
+            self.render_tasks()
+
+        ReminderDialog(self.root, task['text'], on_set, current_reminder)
+
+    def check_reminders(self):
+        """Check for due reminders and show notifications"""
+        now = datetime.now()
+        reminders_triggered = []
+
+        for category in self.data.get('categories', []):
+            for task in category.get('tasks', []):
+                reminder = task.get('reminder')
+                if reminder:
+                    try:
+                        reminder_time = datetime.fromisoformat(reminder)
+                        if reminder_time <= now:
+                            reminders_triggered.append({
+                                'category': category['name'],
+                                'task': task['text'],
+                                'task_obj': task
+                            })
+                    except ValueError:
+                        pass
+
+        # Show notifications for triggered reminders
+        for reminder_info in reminders_triggered:
+            self.show_notification(
+                title=f"Reminder: {reminder_info['category']}",
+                message=reminder_info['task'][:100]
+            )
+            # Clear the reminder after showing
+            reminder_info['task_obj']['reminder'] = None
+
+        if reminders_triggered:
+            self.save_data()
+            self.render_tasks()
+
+        # Check again in 30 seconds
+        self.root.after(30000, self.check_reminders)
+
+    def show_notification(self, title, message):
+        """Show a system notification (cross-platform)"""
+        if HAS_PLYER:
+            try:
+                plyer_notification.notify(
+                    title=title,
+                    message=message,
+                    app_name="Simple Checklist",
+                    timeout=10
+                )
+                return
+            except Exception:
+                pass
+
+        # Fallback: Show a tkinter message box
+        # Use after to prevent blocking
+        self.root.after(0, lambda: messagebox.showinfo(title, message))
 
     def export_markdown(self):
         """Export all tasks to Markdown file with timestamps"""

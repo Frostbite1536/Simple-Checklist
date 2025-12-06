@@ -13,7 +13,7 @@ class TaskPanel:
 
     def __init__(self, parent, on_toggle_task, on_delete_task,
                  on_add_subtask, on_toggle_subtask, on_delete_subtask,
-                 on_edit_task=None, on_edit_subtask=None):
+                 on_edit_task=None, on_edit_subtask=None, on_set_reminder=None):
         """
         Initialize the task panel
 
@@ -26,6 +26,7 @@ class TaskPanel:
             on_delete_subtask: Callback function(task_idx, subtask_idx) when subtask is deleted
             on_edit_task: Callback function(task_idx) when edit button is clicked
             on_edit_subtask: Callback function(task_idx, subtask_idx) when subtask edit is clicked
+            on_set_reminder: Callback function(task_idx) when reminder button is clicked
         """
         self.on_toggle_task = on_toggle_task
         self.on_delete_task = on_delete_task
@@ -34,6 +35,7 @@ class TaskPanel:
         self.on_delete_subtask = on_delete_subtask
         self.on_edit_task = on_edit_task
         self.on_edit_subtask = on_edit_subtask
+        self.on_set_reminder = on_set_reminder
 
         # Create task container
         self.container = tk.Frame(parent, bg='white')
@@ -166,6 +168,17 @@ class TaskPanel:
         # Button frame for task actions - pack FIRST so it gets space
         btn_frame = tk.Frame(main_row, bg='#f8f9fa')
         btn_frame.pack(side=tk.RIGHT, padx=(5, 0))
+
+        # Reminder button
+        if self.on_set_reminder:
+            has_reminder = task.get('reminder') is not None
+            reminder_btn = tk.Button(btn_frame, text="🔔",
+                                    bg='#f39c12' if has_reminder else '#95a5a6',
+                                    fg='white',
+                                    relief=tk.FLAT, width=3,
+                                    font=('Segoe UI', 10),
+                                    command=lambda i=idx: self.on_set_reminder(i))
+            reminder_btn.pack(side=tk.LEFT, padx=1)
 
         # Add sub-task button
         add_sub_btn = tk.Button(btn_frame, text="+",
