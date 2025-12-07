@@ -142,14 +142,58 @@ class ChecklistApp:
 
     def setup_shortcuts(self):
         """Setup keyboard shortcuts"""
+        # Bug #22 fix: Use multiple binding formats for better cross-platform support
         # Ctrl+1-9 to switch categories
-        # Bug #11 fix: Check if input area has focus before processing shortcut
         for i in range(1, 10):
+            # Try both binding formats for maximum compatibility
             self.root.bind(f'<Control-Key-{i}>',
                           lambda e, idx=i-1: self._handle_category_shortcut(idx))
+            self.root.bind(f'<Control-{i}>',
+                          lambda e, idx=i-1: self._handle_category_shortcut(idx))
+            # Also bind Alt+1-9 as fallback for systems where Ctrl+number doesn't work
+            self.root.bind(f'<Alt-Key-{i}>',
+                          lambda e, idx=i-1: self._handle_category_shortcut(idx))
+            self.root.bind(f'<Alt-{i}>',
+                          lambda e, idx=i-1: self._handle_category_shortcut(idx))
+
+        # Bug #23 fix: Add Ctrl+Left/Right arrow navigation for 10+ categories
+        self.root.bind('<Control-Left>', lambda e: self._navigate_categories(-1))
+        self.root.bind('<Control-Right>', lambda e: self._navigate_categories(1))
+        self.root.bind('<Control-Up>', lambda e: self._navigate_categories(-1))
+        self.root.bind('<Control-Down>', lambda e: self._navigate_categories(1))
 
         # Start reminder checker
         self.check_reminders()
+
+    def _navigate_categories(self, direction):
+        """Navigate to previous/next category (for 10+ categories support)"""
+        # Bug #23 fix: Arrow key navigation for categories
+        # Check if input area has focus - don't navigate if user is typing
+        try:
+            if hasattr(self, 'input_area') and self.input_area.has_focus():
+                return  # Allow normal arrow key behavior in input
+        except (KeyError, AttributeError):
+            pass
+
+        categories = self.data['categories']
+        if not categories:
+            return
+
+        current_id = self.data['current_category']
+
+        # Find current category index
+        current_idx = None
+        for i, cat in enumerate(categories):
+            if cat['id'] == current_id:
+                current_idx = i
+                break
+
+        if current_idx is None:
+            current_idx = 0
+
+        # Calculate next index with wrap-around
+        next_idx = (current_idx + direction) % len(categories)
+        self.switch_category(categories[next_idx]['id'])
 
     def _handle_category_shortcut(self, idx):
         """Handle category switching shortcut, ignoring if input has focus"""

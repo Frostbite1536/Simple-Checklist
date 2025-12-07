@@ -35,7 +35,7 @@ class InputArea:
         self.task_input.pack(fill=tk.X, padx=5, pady=5)
 
         hints = tk.Label(self.frame,
-                        text="Shift+Enter: Add task | Enter: New line | Ctrl+1-9: Switch categories",
+                        text="Shift+Enter: Add task | Ctrl+1-9/Alt+1-9: Switch categories | Ctrl+Arrows: Navigate",
                         bg='#fafafa', fg='#7f8c8d',
                         font=('Segoe UI', 9))
         hints.pack(pady=5)
