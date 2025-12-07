@@ -26,7 +26,8 @@ from src.ui import (
     AddSubtaskDialog,
     EditTaskDialog,
     EditCategoryDialog,
-    ReminderDialog
+    ReminderDialog,
+    SearchBar
 )
 
 # Try to import plyer for cross-platform notifications
@@ -42,6 +43,7 @@ from src.persistence import Storage, Settings
 
 # Import features
 from src.features.undo_manager import UndoManager
+from src.features.search import TaskSearcher
 
 
 class ChecklistApp:
@@ -129,6 +131,14 @@ class ChecklistApp:
         )
         self.sidebar.pack(fill=tk.BOTH, expand=True)
 
+        # Feature #2: Create search bar
+        self.search_bar = SearchBar(
+            self.main_window.get_task_panel_container(),
+            on_search_callback=self.search_tasks,
+            on_clear_callback=self.clear_search
+        )
+        self.search_bar.pack(fill=tk.X, padx=20, pady=(10, 0))
+
         # Create task panel
         self.task_panel = TaskPanel(
             self.main_window.get_task_panel_container(),
@@ -142,6 +152,9 @@ class ChecklistApp:
             on_set_reminder=self.set_reminder_dialog
         )
         self.task_panel.pack(fill=tk.BOTH, expand=True)
+
+        # Search state
+        self.search_results = None
 
         # Create input area
         self.input_area = InputArea(
@@ -180,6 +193,10 @@ class ChecklistApp:
         self.root.bind('<Control-Y>', lambda e: self.redo_action())
         self.root.bind('<Control-Shift-z>', lambda e: self.redo_action())
         self.root.bind('<Control-Shift-Z>', lambda e: self.redo_action())
+
+        # Feature #2: Search shortcut
+        self.root.bind('<Control-f>', lambda e: self.search_bar.focus())
+        self.root.bind('<Control-F>', lambda e: self.search_bar.focus())
 
         # Start reminder checker
         self.check_reminders()
@@ -252,6 +269,64 @@ class ChecklistApp:
 
     def render_tasks(self):
         """Render tasks for current category"""
+        # If search is active, render search results instead
+        if self.search_bar.is_active():
+            self.search_tasks(self.search_bar.get_query())
+            return
+
+        category = self.get_current_category()
+        self.task_panel.render_tasks(category)
+
+        if category:
+            self.main_window.update_title(category['name'])
+        else:
+            self.main_window.update_title("Select a category")
+
+    def search_tasks(self, query):
+        """Search tasks and display results (Feature #2)"""
+        if not query or not query.strip():
+            self.clear_search()
+            return
+
+        # Search across current category only for now
+        results = TaskSearcher.search_tasks(
+            self.data['categories'],
+            query,
+            category_id=self.data['current_category']
+        )
+
+        self.search_results = results
+
+        # Update title to show search mode
+        category = self.get_current_category()
+        cat_name = category['name'] if category else "Tasks"
+        self.main_window.update_title(f"🔍 Search in {cat_name}: {len(results)} result(s)")
+
+        # Render search results
+        self._render_search_results(results, query)
+
+    def _render_search_results(self, results, query):
+        """Render search results in task panel"""
+        # Clear existing widgets
+        for widget in self.task_panel.task_frame.winfo_children():
+            widget.destroy()
+
+        if not results:
+            import tkinter as tk
+            empty = tk.Label(self.task_panel.task_frame,
+                           text=f"No tasks matching '{query}'",
+                           bg='white', fg='#95a5a6',
+                           font=('Segoe UI', 12))
+            empty.pack(pady=50)
+            return
+
+        # Render each matching task
+        for result in results:
+            self.task_panel._render_task(result['task_idx'], result['task'])
+
+    def clear_search(self):
+        """Clear search and show normal task list (Feature #2)"""
+        self.search_results = None
         category = self.get_current_category()
         self.task_panel.render_tasks(category)
 

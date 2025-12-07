@@ -8,6 +8,7 @@ from .input_area import InputArea
 from .sidebar import Sidebar
 from .task_panel import TaskPanel
 from .main_window import MainWindow
+from .search_bar import SearchBar
 
 __all__ = [
     'AddCategoryDialog',
@@ -19,4 +20,5 @@ __all__ = [
     'Sidebar',
     'TaskPanel',
     'MainWindow',
+    'SearchBar',
 ]
