@@ -8,7 +8,8 @@ from tkinter import messagebox
 from datetime import datetime, timedelta
 
 # Maximum character limit for category names
-MAX_CATEGORY_NAME_LENGTH = 17
+# Bug #19 fix: Reduced from 17 to 16 to prevent delete button from being pushed off-screen
+MAX_CATEGORY_NAME_LENGTH = 16
 
 
 class AddCategoryDialog:
@@ -92,7 +93,8 @@ class AddSubtaskDialog:
 
     def _setup_ui(self):
         """Setup the dialog UI"""
-        tk.Label(self.dialog, text="Sub-task (Shift+Enter for new line):").pack(pady=10)
+        # Bug #21 fix: Updated hint to reflect correct key bindings
+        tk.Label(self.dialog, text="Sub-task (Enter for new line, Shift+Enter to add):").pack(pady=10)
 
         self.text_input = tk.Text(self.dialog, font=('Segoe UI', 11), height=3,
                                   relief=tk.SOLID, borderwidth=1)
@@ -107,18 +109,14 @@ class AddSubtaskDialog:
         tk.Button(btn_frame, text="Add",
                  command=self._on_add).pack(side=tk.LEFT, padx=5)
 
-        # Bind Enter key to submit, Shift+Enter for new line
-        self.text_input.bind('<Return>', self._handle_return)
-        self.text_input.bind('<Shift-Return>', lambda e: None)  # Allow default new line
+        # Bug #21 fix: Swap Enter/Shift+Enter - Enter for newline, Shift+Enter to submit
+        # This matches natural text editor behavior (e.g., Slack, Discord)
+        self.text_input.bind('<Shift-Return>', self._handle_shift_return)
 
-    def _handle_return(self, event):
-        """Handle Enter key - submit unless Shift is held"""
-        # Check if Shift is held using keysym for more reliable cross-platform behavior
-        # Fallback to event.state & 0x1 (Shift flag) if keysym check isn't sufficient
-        shift_held = (event.state & 0x1) or event.keysym in ('Shift_L', 'Shift_R')
-        if not shift_held:
-            self._on_add()
-            return 'break'
+    def _handle_shift_return(self, event):
+        """Handle Shift+Enter key - submit the subtask"""
+        self._on_add()
+        return 'break'
 
     def _on_add(self):
         """Handle add button click"""
@@ -157,7 +155,8 @@ class EditTaskDialog:
 
     def _setup_ui(self, current_text):
         """Setup the dialog UI"""
-        tk.Label(self.dialog, text="Text (Shift+Enter for new line):").pack(pady=10)
+        # Bug #21 fix: Updated hint to reflect correct key bindings
+        tk.Label(self.dialog, text="Text (Enter for new line, Shift+Enter to save):").pack(pady=10)
 
         self.text_input = tk.Text(self.dialog, font=('Segoe UI', 11), height=4,
                                   relief=tk.SOLID, borderwidth=1)
@@ -176,18 +175,14 @@ class EditTaskDialog:
         tk.Button(btn_frame, text="Save",
                  command=self._on_save).pack(side=tk.LEFT, padx=5)
 
-        # Bind Enter key to submit, Shift+Enter for new line
-        self.text_input.bind('<Return>', self._handle_return)
-        self.text_input.bind('<Shift-Return>', lambda e: None)  # Allow default new line
+        # Bug #21 fix: Swap Enter/Shift+Enter - Enter for newline, Shift+Enter to submit
+        # This matches natural text editor behavior (e.g., Slack, Discord)
+        self.text_input.bind('<Shift-Return>', self._handle_shift_return)
 
-    def _handle_return(self, event):
-        """Handle Enter key - submit unless Shift is held"""
-        # Check if Shift is held using keysym for more reliable cross-platform behavior
-        # Fallback to event.state & 0x1 (Shift flag) if keysym check isn't sufficient
-        shift_held = (event.state & 0x1) or event.keysym in ('Shift_L', 'Shift_R')
-        if not shift_held:
-            self._on_save()
-            return 'break'
+    def _handle_shift_return(self, event):
+        """Handle Shift+Enter key - save the task"""
+        self._on_save()
+        return 'break'
 
     def _on_save(self):
         """Handle save button click"""
