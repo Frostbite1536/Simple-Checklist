@@ -44,6 +44,7 @@ from src.persistence import Storage, Settings
 # Import features
 from src.features.undo_manager import UndoManager
 from src.features.search import TaskSearcher
+from src.features.task_sorting import TaskSorter
 
 
 class ChecklistApp:
@@ -116,7 +117,9 @@ class ChecklistApp:
             'on_undo': self.undo_action,
             'on_redo': self.redo_action,
             'can_undo': self.undo_manager.can_undo,
-            'can_redo': self.undo_manager.can_redo
+            'can_redo': self.undo_manager.can_redo,
+            # Feature #9: Task sorting callback
+            'on_sort_tasks': self.sort_tasks
         }
         self.main_window = MainWindow(self.root, callbacks)
 
@@ -334,6 +337,22 @@ class ChecklistApp:
             self.main_window.update_title(category['name'])
         else:
             self.main_window.update_title("Select a category")
+
+    def sort_tasks(self, sort_by):
+        """Sort tasks in current category (Feature #9)"""
+        category = self.get_current_category()
+        if not category or not category['tasks']:
+            return
+
+        self.record_state(f"Sort tasks by {sort_by}")
+
+        if sort_by == 'smart':
+            TaskSorter.sort_smart(category['tasks'])
+        else:
+            TaskSorter.sort_tasks(category['tasks'], sort_by)
+
+        self.save_data()
+        self.render_tasks()
 
     def get_current_category(self):
         """Get the currently selected category"""
