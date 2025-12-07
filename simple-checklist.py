@@ -40,6 +40,9 @@ except ImportError:
 from src.models import Category, Task, Checklist
 from src.persistence import Storage, Settings
 
+# Import features
+from src.features.undo_manager import UndoManager
+
 
 class ChecklistApp:
     def __init__(self, root):
@@ -61,6 +64,9 @@ class ChecklistApp:
         }
         self.settings_file = os.path.join(os.path.expanduser('~'), '.simple_checklist_settings.json')
         self.load_settings()
+
+        # Initialize undo/redo manager (Feature #1)
+        self.undo_manager = UndoManager(max_history=20)
 
         # Load data
         self.load_data()
@@ -103,7 +109,12 @@ class ChecklistApp:
             'on_clear_completed': self.clear_completed,
             'get_recent_files': lambda: self.settings['recent_files'],
             'on_load_recent_file': self.load_checklist_file,
-            'on_clear_recent_files': self.clear_recent_files
+            'on_clear_recent_files': self.clear_recent_files,
+            # Feature #1: Undo/Redo callbacks
+            'on_undo': self.undo_action,
+            'on_redo': self.redo_action,
+            'can_undo': self.undo_manager.can_undo,
+            'can_redo': self.undo_manager.can_redo
         }
         self.main_window = MainWindow(self.root, callbacks)
 
@@ -162,6 +173,14 @@ class ChecklistApp:
         self.root.bind('<Control-Up>', lambda e: self._navigate_categories(-1))
         self.root.bind('<Control-Down>', lambda e: self._navigate_categories(1))
 
+        # Feature #1: Undo/Redo shortcuts
+        self.root.bind('<Control-z>', lambda e: self.undo_action())
+        self.root.bind('<Control-Z>', lambda e: self.undo_action())
+        self.root.bind('<Control-y>', lambda e: self.redo_action())
+        self.root.bind('<Control-Y>', lambda e: self.redo_action())
+        self.root.bind('<Control-Shift-z>', lambda e: self.redo_action())
+        self.root.bind('<Control-Shift-Z>', lambda e: self.redo_action())
+
         # Start reminder checker
         self.check_reminders()
 
@@ -207,6 +226,30 @@ class ChecklistApp:
             pass
         self.switch_category_by_index(idx)
 
+    def record_state(self, action_description=""):
+        """Record current state before a change (Feature #1: Undo/Redo)"""
+        self.undo_manager.record_state(self.data, action_description)
+
+    def undo_action(self):
+        """Undo the last action (Feature #1)"""
+        previous_state = self.undo_manager.undo(self.data)
+        if previous_state:
+            self.data = previous_state
+            self.save_data()
+            self.sidebar.render_categories(self.data['categories'],
+                                           self.data['current_category'])
+            self.render_tasks()
+
+    def redo_action(self):
+        """Redo the last undone action (Feature #1)"""
+        redo_state = self.undo_manager.redo(self.data)
+        if redo_state:
+            self.data = redo_state
+            self.save_data()
+            self.sidebar.render_categories(self.data['categories'],
+                                           self.data['current_category'])
+            self.render_tasks()
+
     def render_tasks(self):
         """Render tasks for current category"""
         category = self.get_current_category()
@@ -238,6 +281,7 @@ class ChecklistApp:
 
     def reorder_categories(self, from_idx, to_idx):
         """Reorder categories via drag-and-drop"""
+        self.record_state("Reorder categories")
         category = self.data['categories'].pop(from_idx)
         self.data['categories'].insert(to_idx, category)
         self.save_data()
@@ -247,6 +291,7 @@ class ChecklistApp:
     def add_category_dialog(self):
         """Show dialog to add new category"""
         def on_add(name):
+            self.record_state("Add category")
             new_id = max([c['id'] for c in self.data['categories']], default=0) + 1
             self.data['categories'].append({
                 'id': new_id,
@@ -270,6 +315,7 @@ class ChecklistApp:
 
         if messagebox.askyesno("Delete Category",
                               "Delete this category and all its tasks?"):
+            self.record_state("Delete category")
             self.data['categories'] = [c for c in self.data['categories']
                                       if c['id'] != cat_id]
             if self.data['current_category'] == cat_id:
@@ -286,6 +332,7 @@ class ChecklistApp:
     def edit_category_dialog(self, cat_id, current_name):
         """Show dialog to edit category name"""
         def on_save(new_name):
+            self.record_state("Edit category name")
             for cat in self.data['categories']:
                 if cat['id'] == cat_id:
                     cat['name'] = new_name
@@ -305,6 +352,7 @@ class ChecklistApp:
 
         category = self.get_current_category()
         if category:
+            self.record_state("Add task")
             category['tasks'].append({
                 'text': text,
                 'notes': [],
@@ -321,6 +369,7 @@ class ChecklistApp:
         """Toggle task completion status"""
         category = self.get_current_category()
         if category and idx < len(category['tasks']):
+            self.record_state("Toggle task")
             category['tasks'][idx]['completed'] = not category['tasks'][idx]['completed']
             self.save_data()
             self.render_tasks()
@@ -330,6 +379,7 @@ class ChecklistApp:
         category = self.get_current_category()
         if category and idx < len(category['tasks']):
             if messagebox.askyesno("Delete Task", "Delete this task?"):
+                self.record_state("Delete task")
                 del category['tasks'][idx]
                 self.save_data()
                 self.render_tasks()
@@ -345,6 +395,7 @@ class ChecklistApp:
         current_text = category['tasks'][task_idx]['text']
 
         def on_save(new_text):
+            self.record_state("Edit task")
             category['tasks'][task_idx]['text'] = new_text
             self.save_data()
             self.render_tasks()
@@ -364,6 +415,7 @@ class ChecklistApp:
 
         if messagebox.askyesno("Clear Completed",
                               f"Clear {len(completed)} completed task(s)?"):
+            self.record_state("Clear completed tasks")
             category['tasks'] = [t for t in category['tasks'] if not t['completed']]
             self.save_data()
             self.render_tasks()
@@ -375,6 +427,7 @@ class ChecklistApp:
         def on_add(text):
             category = self.get_current_category()
             if category and task_idx < len(category['tasks']):
+                self.record_state("Add subtask")
                 if 'subtasks' not in category['tasks'][task_idx]:
                     category['tasks'][task_idx]['subtasks'] = []
                 category['tasks'][task_idx]['subtasks'].append({
@@ -392,6 +445,7 @@ class ChecklistApp:
         if category and task_idx < len(category['tasks']):
             task = category['tasks'][task_idx]
             if 'subtasks' in task and subtask_idx < len(task['subtasks']):
+                self.record_state("Toggle subtask")
                 task['subtasks'][subtask_idx]['completed'] = not task['subtasks'][subtask_idx]['completed']
                 self.save_data()
                 self.render_tasks()
@@ -403,6 +457,7 @@ class ChecklistApp:
             task = category['tasks'][task_idx]
             if 'subtasks' in task and subtask_idx < len(task['subtasks']):
                 if messagebox.askyesno("Delete Sub-task", "Delete this sub-task?"):
+                    self.record_state("Delete subtask")
                     del task['subtasks'][subtask_idx]
                     self.save_data()
                     self.render_tasks()
@@ -420,6 +475,7 @@ class ChecklistApp:
         current_text = task['subtasks'][subtask_idx]['text']
 
         def on_save(new_text):
+            self.record_state("Edit subtask")
             task['subtasks'][subtask_idx]['text'] = new_text
             self.save_data()
             self.render_tasks()
@@ -436,6 +492,7 @@ class ChecklistApp:
         current_reminder = task.get('reminder')
 
         def on_set(reminder_iso):
+            self.record_state("Set reminder")
             task['reminder'] = reminder_iso
             self.save_data()
             self.render_tasks()

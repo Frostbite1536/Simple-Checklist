@@ -87,6 +87,16 @@ class MainWindow:
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.callbacks['on_exit'])
 
+        # Edit menu (Feature #1: Undo/Redo)
+        edit_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Edit", menu=edit_menu)
+        edit_menu.add_command(label="Undo",
+                             command=self.callbacks.get('on_undo', lambda: None),
+                             accelerator="Ctrl+Z")
+        edit_menu.add_command(label="Redo",
+                             command=self.callbacks.get('on_redo', lambda: None),
+                             accelerator="Ctrl+Y")
+
         # Settings menu
         settings_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Settings", menu=settings_menu)
