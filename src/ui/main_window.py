@@ -87,6 +87,34 @@ class MainWindow:
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.callbacks['on_exit'])
 
+        # Edit menu (Feature #1: Undo/Redo)
+        edit_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Edit", menu=edit_menu)
+        edit_menu.add_command(label="Undo",
+                             command=self.callbacks.get('on_undo', lambda: None),
+                             accelerator="Ctrl+Z")
+        edit_menu.add_command(label="Redo",
+                             command=self.callbacks.get('on_redo', lambda: None),
+                             accelerator="Ctrl+Y")
+
+        # Sort menu (Feature #9)
+        sort_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Sort", menu=sort_menu)
+        sort_menu.add_command(label="Smart Sort (Recommended)",
+                             command=lambda: self._call_sort('smart'))
+        sort_menu.add_separator()
+        sort_menu.add_command(label="By Priority (High → Low)",
+                             command=lambda: self._call_sort('priority'))
+        sort_menu.add_command(label="By Due Date (Earliest First)",
+                             command=lambda: self._call_sort('due_date'))
+        sort_menu.add_command(label="By Creation Date",
+                             command=lambda: self._call_sort('created'))
+        sort_menu.add_command(label="Alphabetically (A → Z)",
+                             command=lambda: self._call_sort('a-z'))
+        sort_menu.add_separator()
+        sort_menu.add_command(label="By Completion Status",
+                             command=lambda: self._call_sort('completion'))
+
         # Settings menu
         settings_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Settings", menu=settings_menu)
@@ -185,3 +213,8 @@ class MainWindow:
     def get_input_container(self):
         """Get the input container for adding input area widget"""
         return self.input_container
+
+    def _call_sort(self, sort_by):
+        """Call the sort callback if available"""
+        if 'on_sort_tasks' in self.callbacks:
+            self.callbacks['on_sort_tasks'](sort_by)

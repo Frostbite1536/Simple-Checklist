@@ -26,7 +26,8 @@ from src.ui import (
     AddSubtaskDialog,
     EditTaskDialog,
     EditCategoryDialog,
-    ReminderDialog
+    ReminderDialog,
+    SearchBar
 )
 
 # Try to import plyer for cross-platform notifications
@@ -39,6 +40,11 @@ except ImportError:
 # Import business logic
 from src.models import Category, Task, Checklist
 from src.persistence import Storage, Settings
+
+# Import features
+from src.features.undo_manager import UndoManager
+from src.features.search import TaskSearcher
+from src.features.task_sorting import TaskSorter
 
 
 class ChecklistApp:
@@ -61,6 +67,9 @@ class ChecklistApp:
         }
         self.settings_file = os.path.join(os.path.expanduser('~'), '.simple_checklist_settings.json')
         self.load_settings()
+
+        # Initialize undo/redo manager (Feature #1)
+        self.undo_manager = UndoManager(max_history=20)
 
         # Load data
         self.load_data()
@@ -103,7 +112,14 @@ class ChecklistApp:
             'on_clear_completed': self.clear_completed,
             'get_recent_files': lambda: self.settings['recent_files'],
             'on_load_recent_file': self.load_checklist_file,
-            'on_clear_recent_files': self.clear_recent_files
+            'on_clear_recent_files': self.clear_recent_files,
+            # Feature #1: Undo/Redo callbacks
+            'on_undo': self.undo_action,
+            'on_redo': self.redo_action,
+            'can_undo': self.undo_manager.can_undo,
+            'can_redo': self.undo_manager.can_redo,
+            # Feature #9: Task sorting callback
+            'on_sort_tasks': self.sort_tasks
         }
         self.main_window = MainWindow(self.root, callbacks)
 
@@ -117,6 +133,14 @@ class ChecklistApp:
             on_category_edit=self.edit_category_dialog
         )
         self.sidebar.pack(fill=tk.BOTH, expand=True)
+
+        # Feature #2: Create search bar
+        self.search_bar = SearchBar(
+            self.main_window.get_task_panel_container(),
+            on_search_callback=self.search_tasks,
+            on_clear_callback=self.clear_search
+        )
+        self.search_bar.pack(fill=tk.X, padx=20, pady=(10, 0))
 
         # Create task panel
         self.task_panel = TaskPanel(
@@ -132,6 +156,9 @@ class ChecklistApp:
         )
         self.task_panel.pack(fill=tk.BOTH, expand=True)
 
+        # Search state
+        self.search_results = None
+
         # Create input area
         self.input_area = InputArea(
             self.main_window.get_input_container(),
@@ -142,14 +169,70 @@ class ChecklistApp:
 
     def setup_shortcuts(self):
         """Setup keyboard shortcuts"""
+        # Bug #22 fix: Use multiple binding formats for better cross-platform support
         # Ctrl+1-9 to switch categories
-        # Bug #11 fix: Check if input area has focus before processing shortcut
         for i in range(1, 10):
+            # Try both binding formats for maximum compatibility
             self.root.bind(f'<Control-Key-{i}>',
                           lambda e, idx=i-1: self._handle_category_shortcut(idx))
+            self.root.bind(f'<Control-{i}>',
+                          lambda e, idx=i-1: self._handle_category_shortcut(idx))
+            # Also bind Alt+1-9 as fallback for systems where Ctrl+number doesn't work
+            self.root.bind(f'<Alt-Key-{i}>',
+                          lambda e, idx=i-1: self._handle_category_shortcut(idx))
+            self.root.bind(f'<Alt-{i}>',
+                          lambda e, idx=i-1: self._handle_category_shortcut(idx))
+
+        # Bug #23 fix: Add Ctrl+Left/Right arrow navigation for 10+ categories
+        self.root.bind('<Control-Left>', lambda e: self._navigate_categories(-1))
+        self.root.bind('<Control-Right>', lambda e: self._navigate_categories(1))
+        self.root.bind('<Control-Up>', lambda e: self._navigate_categories(-1))
+        self.root.bind('<Control-Down>', lambda e: self._navigate_categories(1))
+
+        # Feature #1: Undo/Redo shortcuts
+        self.root.bind('<Control-z>', lambda e: self.undo_action())
+        self.root.bind('<Control-Z>', lambda e: self.undo_action())
+        self.root.bind('<Control-y>', lambda e: self.redo_action())
+        self.root.bind('<Control-Y>', lambda e: self.redo_action())
+        self.root.bind('<Control-Shift-z>', lambda e: self.redo_action())
+        self.root.bind('<Control-Shift-Z>', lambda e: self.redo_action())
+
+        # Feature #2: Search shortcut
+        self.root.bind('<Control-f>', lambda e: self.search_bar.focus())
+        self.root.bind('<Control-F>', lambda e: self.search_bar.focus())
 
         # Start reminder checker
         self.check_reminders()
+
+    def _navigate_categories(self, direction):
+        """Navigate to previous/next category (for 10+ categories support)"""
+        # Bug #23 fix: Arrow key navigation for categories
+        # Check if input area has focus - don't navigate if user is typing
+        try:
+            if hasattr(self, 'input_area') and self.input_area.has_focus():
+                return  # Allow normal arrow key behavior in input
+        except (KeyError, AttributeError):
+            pass
+
+        categories = self.data['categories']
+        if not categories:
+            return
+
+        current_id = self.data['current_category']
+
+        # Find current category index
+        current_idx = None
+        for i, cat in enumerate(categories):
+            if cat['id'] == current_id:
+                current_idx = i
+                break
+
+        if current_idx is None:
+            current_idx = 0
+
+        # Calculate next index with wrap-around
+        next_idx = (current_idx + direction) % len(categories)
+        self.switch_category(categories[next_idx]['id'])
 
     def _handle_category_shortcut(self, idx):
         """Handle category switching shortcut, ignoring if input has focus"""
@@ -163,8 +246,37 @@ class ChecklistApp:
             pass
         self.switch_category_by_index(idx)
 
+    def record_state(self, action_description=""):
+        """Record current state before a change (Feature #1: Undo/Redo)"""
+        self.undo_manager.record_state(self.data, action_description)
+
+    def undo_action(self):
+        """Undo the last action (Feature #1)"""
+        previous_state = self.undo_manager.undo(self.data)
+        if previous_state:
+            self.data = previous_state
+            self.save_data()
+            self.sidebar.render_categories(self.data['categories'],
+                                           self.data['current_category'])
+            self.render_tasks()
+
+    def redo_action(self):
+        """Redo the last undone action (Feature #1)"""
+        redo_state = self.undo_manager.redo(self.data)
+        if redo_state:
+            self.data = redo_state
+            self.save_data()
+            self.sidebar.render_categories(self.data['categories'],
+                                           self.data['current_category'])
+            self.render_tasks()
+
     def render_tasks(self):
         """Render tasks for current category"""
+        # If search is active, render search results instead
+        if self.search_bar.is_active():
+            self.search_tasks(self.search_bar.get_query())
+            return
+
         category = self.get_current_category()
         self.task_panel.render_tasks(category)
 
@@ -172,6 +284,75 @@ class ChecklistApp:
             self.main_window.update_title(category['name'])
         else:
             self.main_window.update_title("Select a category")
+
+    def search_tasks(self, query):
+        """Search tasks and display results (Feature #2)"""
+        if not query or not query.strip():
+            self.clear_search()
+            return
+
+        # Search across current category only for now
+        results = TaskSearcher.search_tasks(
+            self.data['categories'],
+            query,
+            category_id=self.data['current_category']
+        )
+
+        self.search_results = results
+
+        # Update title to show search mode
+        category = self.get_current_category()
+        cat_name = category['name'] if category else "Tasks"
+        self.main_window.update_title(f"🔍 Search in {cat_name}: {len(results)} result(s)")
+
+        # Render search results
+        self._render_search_results(results, query)
+
+    def _render_search_results(self, results, query):
+        """Render search results in task panel"""
+        # Clear existing widgets
+        for widget in self.task_panel.task_frame.winfo_children():
+            widget.destroy()
+
+        if not results:
+            import tkinter as tk
+            empty = tk.Label(self.task_panel.task_frame,
+                           text=f"No tasks matching '{query}'",
+                           bg='white', fg='#95a5a6',
+                           font=('Segoe UI', 12))
+            empty.pack(pady=50)
+            return
+
+        # Render each matching task
+        for result in results:
+            self.task_panel._render_task(result['task_idx'], result['task'])
+
+    def clear_search(self):
+        """Clear search and show normal task list (Feature #2)"""
+        self.search_results = None
+        category = self.get_current_category()
+        self.task_panel.render_tasks(category)
+
+        if category:
+            self.main_window.update_title(category['name'])
+        else:
+            self.main_window.update_title("Select a category")
+
+    def sort_tasks(self, sort_by):
+        """Sort tasks in current category (Feature #9)"""
+        category = self.get_current_category()
+        if not category or not category['tasks']:
+            return
+
+        self.record_state(f"Sort tasks by {sort_by}")
+
+        if sort_by == 'smart':
+            TaskSorter.sort_smart(category['tasks'])
+        else:
+            TaskSorter.sort_tasks(category['tasks'], sort_by)
+
+        self.save_data()
+        self.render_tasks()
 
     def get_current_category(self):
         """Get the currently selected category"""
@@ -194,6 +375,7 @@ class ChecklistApp:
 
     def reorder_categories(self, from_idx, to_idx):
         """Reorder categories via drag-and-drop"""
+        self.record_state("Reorder categories")
         category = self.data['categories'].pop(from_idx)
         self.data['categories'].insert(to_idx, category)
         self.save_data()
@@ -203,6 +385,7 @@ class ChecklistApp:
     def add_category_dialog(self):
         """Show dialog to add new category"""
         def on_add(name):
+            self.record_state("Add category")
             new_id = max([c['id'] for c in self.data['categories']], default=0) + 1
             self.data['categories'].append({
                 'id': new_id,
@@ -226,6 +409,7 @@ class ChecklistApp:
 
         if messagebox.askyesno("Delete Category",
                               "Delete this category and all its tasks?"):
+            self.record_state("Delete category")
             self.data['categories'] = [c for c in self.data['categories']
                                       if c['id'] != cat_id]
             if self.data['current_category'] == cat_id:
@@ -242,6 +426,7 @@ class ChecklistApp:
     def edit_category_dialog(self, cat_id, current_name):
         """Show dialog to edit category name"""
         def on_save(new_name):
+            self.record_state("Edit category name")
             for cat in self.data['categories']:
                 if cat['id'] == cat_id:
                     cat['name'] = new_name
@@ -261,6 +446,7 @@ class ChecklistApp:
 
         category = self.get_current_category()
         if category:
+            self.record_state("Add task")
             category['tasks'].append({
                 'text': text,
                 'notes': [],
@@ -277,6 +463,7 @@ class ChecklistApp:
         """Toggle task completion status"""
         category = self.get_current_category()
         if category and idx < len(category['tasks']):
+            self.record_state("Toggle task")
             category['tasks'][idx]['completed'] = not category['tasks'][idx]['completed']
             self.save_data()
             self.render_tasks()
@@ -286,6 +473,7 @@ class ChecklistApp:
         category = self.get_current_category()
         if category and idx < len(category['tasks']):
             if messagebox.askyesno("Delete Task", "Delete this task?"):
+                self.record_state("Delete task")
                 del category['tasks'][idx]
                 self.save_data()
                 self.render_tasks()
@@ -293,19 +481,31 @@ class ChecklistApp:
                                                self.data['current_category'])
 
     def edit_task_dialog(self, task_idx):
-        """Show dialog to edit a task's text"""
+        """Show dialog to edit a task's text, priority, and due date"""
         category = self.get_current_category()
         if not category or task_idx >= len(category['tasks']):
             return
 
-        current_text = category['tasks'][task_idx]['text']
+        task = category['tasks'][task_idx]
+        current_text = task['text']
+        current_priority = task.get('priority', 'medium')
+        current_due_date = task.get('due_date')
 
-        def on_save(new_text):
-            category['tasks'][task_idx]['text'] = new_text
+        def on_save(new_text, priority=None, due_date=None):
+            self.record_state("Edit task")
+            task['text'] = new_text
+            if priority is not None:
+                task['priority'] = priority
+            if due_date is not None or 'due_date' in task:
+                task['due_date'] = due_date
             self.save_data()
             self.render_tasks()
 
-        EditTaskDialog(self.root, current_text, on_save)
+        # Show dialog with priority/due date options
+        EditTaskDialog(self.root, current_text, on_save,
+                      current_priority=current_priority,
+                      current_due_date=current_due_date,
+                      show_options=True)
 
     def clear_completed(self):
         """Clear all completed tasks"""
@@ -320,6 +520,7 @@ class ChecklistApp:
 
         if messagebox.askyesno("Clear Completed",
                               f"Clear {len(completed)} completed task(s)?"):
+            self.record_state("Clear completed tasks")
             category['tasks'] = [t for t in category['tasks'] if not t['completed']]
             self.save_data()
             self.render_tasks()
@@ -331,6 +532,7 @@ class ChecklistApp:
         def on_add(text):
             category = self.get_current_category()
             if category and task_idx < len(category['tasks']):
+                self.record_state("Add subtask")
                 if 'subtasks' not in category['tasks'][task_idx]:
                     category['tasks'][task_idx]['subtasks'] = []
                 category['tasks'][task_idx]['subtasks'].append({
@@ -348,6 +550,7 @@ class ChecklistApp:
         if category and task_idx < len(category['tasks']):
             task = category['tasks'][task_idx]
             if 'subtasks' in task and subtask_idx < len(task['subtasks']):
+                self.record_state("Toggle subtask")
                 task['subtasks'][subtask_idx]['completed'] = not task['subtasks'][subtask_idx]['completed']
                 self.save_data()
                 self.render_tasks()
@@ -359,6 +562,7 @@ class ChecklistApp:
             task = category['tasks'][task_idx]
             if 'subtasks' in task and subtask_idx < len(task['subtasks']):
                 if messagebox.askyesno("Delete Sub-task", "Delete this sub-task?"):
+                    self.record_state("Delete subtask")
                     del task['subtasks'][subtask_idx]
                     self.save_data()
                     self.render_tasks()
@@ -376,6 +580,7 @@ class ChecklistApp:
         current_text = task['subtasks'][subtask_idx]['text']
 
         def on_save(new_text):
+            self.record_state("Edit subtask")
             task['subtasks'][subtask_idx]['text'] = new_text
             self.save_data()
             self.render_tasks()
@@ -392,6 +597,7 @@ class ChecklistApp:
         current_reminder = task.get('reminder')
 
         def on_set(reminder_iso):
+            self.record_state("Set reminder")
             task['reminder'] = reminder_iso
             self.save_data()
             self.render_tasks()

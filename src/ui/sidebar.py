@@ -7,7 +7,8 @@ import tkinter as tk
 from tkinter import ttk
 
 # Maximum character limit for category names
-MAX_CATEGORY_NAME_LENGTH = 17
+# Bug #19 fix: Reduced from 17 to 16 to prevent delete button from being pushed off-screen
+MAX_CATEGORY_NAME_LENGTH = 16
 
 
 class Sidebar:
@@ -123,14 +124,16 @@ class Sidebar:
 
     def _on_mousewheel(self, event):
         """Handle mousewheel scroll (Windows/Mac)"""
-        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        # Bug #20 fix: Increased scroll speed from 1 to 3 units for more responsive scrolling
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)) * 3, 'units')
 
     def _on_mousewheel_linux(self, event):
         """Handle mousewheel scroll (Linux)"""
+        # Bug #20 fix: Increased scroll speed from 1 to 3 units for more responsive scrolling
         if event.num == 4:
-            self.canvas.yview_scroll(-1, 'units')
+            self.canvas.yview_scroll(-3, 'units')
         elif event.num == 5:
-            self.canvas.yview_scroll(1, 'units')
+            self.canvas.yview_scroll(3, 'units')
 
     def pack(self, **kwargs):
         """Pack the sidebar frame"""

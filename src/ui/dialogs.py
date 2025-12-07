@@ -8,7 +8,8 @@ from tkinter import messagebox
 from datetime import datetime, timedelta
 
 # Maximum character limit for category names
-MAX_CATEGORY_NAME_LENGTH = 17
+# Bug #19 fix: Reduced from 17 to 16 to prevent delete button from being pushed off-screen
+MAX_CATEGORY_NAME_LENGTH = 16
 
 
 class AddCategoryDialog:
@@ -92,7 +93,8 @@ class AddSubtaskDialog:
 
     def _setup_ui(self):
         """Setup the dialog UI"""
-        tk.Label(self.dialog, text="Sub-task (Shift+Enter for new line):").pack(pady=10)
+        # Bug #21 fix: Updated hint to reflect correct key bindings
+        tk.Label(self.dialog, text="Sub-task (Enter for new line, Shift+Enter to add):").pack(pady=10)
 
         self.text_input = tk.Text(self.dialog, font=('Segoe UI', 11), height=3,
                                   relief=tk.SOLID, borderwidth=1)
@@ -107,18 +109,14 @@ class AddSubtaskDialog:
         tk.Button(btn_frame, text="Add",
                  command=self._on_add).pack(side=tk.LEFT, padx=5)
 
-        # Bind Enter key to submit, Shift+Enter for new line
-        self.text_input.bind('<Return>', self._handle_return)
-        self.text_input.bind('<Shift-Return>', lambda e: None)  # Allow default new line
+        # Bug #21 fix: Swap Enter/Shift+Enter - Enter for newline, Shift+Enter to submit
+        # This matches natural text editor behavior (e.g., Slack, Discord)
+        self.text_input.bind('<Shift-Return>', self._handle_shift_return)
 
-    def _handle_return(self, event):
-        """Handle Enter key - submit unless Shift is held"""
-        # Check if Shift is held using keysym for more reliable cross-platform behavior
-        # Fallback to event.state & 0x1 (Shift flag) if keysym check isn't sufficient
-        shift_held = (event.state & 0x1) or event.keysym in ('Shift_L', 'Shift_R')
-        if not shift_held:
-            self._on_add()
-            return 'break'
+    def _handle_shift_return(self, event):
+        """Handle Shift+Enter key - submit the subtask"""
+        self._on_add()
+        return 'break'
 
     def _on_add(self):
         """Handle add button click"""
@@ -135,29 +133,37 @@ class AddSubtaskDialog:
 class EditTaskDialog:
     """Dialog for editing a task's text"""
 
-    def __init__(self, parent, current_text, on_save_callback, title="Edit Task"):
+    def __init__(self, parent, current_text, on_save_callback, title="Edit Task",
+                 current_priority=None, current_due_date=None, show_options=False):
         """
         Initialize the edit task dialog
 
         Args:
             parent: Parent window
             current_text: Current task text to edit
-            on_save_callback: Callback function(new_text) called when task is saved
+            on_save_callback: Callback function(new_text) or function(new_text, priority, due_date)
             title: Dialog title (default: "Edit Task")
+            current_priority: Current task priority ('low', 'medium', 'high')
+            current_due_date: Current due date string (YYYY-MM-DD)
+            show_options: Whether to show priority/due date options
         """
         self.on_save_callback = on_save_callback
+        self.show_options = show_options
 
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(title)
-        self.dialog.geometry("500x200")
+        # Larger dialog if showing options
+        height = 320 if show_options else 200
+        self.dialog.geometry(f"500x{height}")
         self.dialog.transient(parent)
         self.dialog.grab_set()
 
-        self._setup_ui(current_text)
+        self._setup_ui(current_text, current_priority, current_due_date)
 
-    def _setup_ui(self, current_text):
+    def _setup_ui(self, current_text, current_priority, current_due_date):
         """Setup the dialog UI"""
-        tk.Label(self.dialog, text="Text (Shift+Enter for new line):").pack(pady=10)
+        # Bug #21 fix: Updated hint to reflect correct key bindings
+        tk.Label(self.dialog, text="Text (Enter for new line, Shift+Enter to save):").pack(pady=10)
 
         self.text_input = tk.Text(self.dialog, font=('Segoe UI', 11), height=4,
                                   relief=tk.SOLID, borderwidth=1)
@@ -168,6 +174,40 @@ class EditTaskDialog:
         self.text_input.tag_add(tk.SEL, '1.0', tk.END)
         self.text_input.mark_set(tk.INSERT, '1.0')
 
+        # Feature #3 & #4: Priority and Due Date options
+        if self.show_options:
+            options_frame = tk.Frame(self.dialog)
+            options_frame.pack(fill=tk.X, padx=20, pady=10)
+
+            # Priority selector
+            priority_frame = tk.Frame(options_frame)
+            priority_frame.pack(side=tk.LEFT, padx=(0, 20))
+
+            tk.Label(priority_frame, text="Priority:").pack(side=tk.LEFT, padx=(0, 5))
+
+            self.priority_var = tk.StringVar(value=current_priority or 'medium')
+            priorities = [('Low', 'low'), ('Medium', 'medium'), ('High', 'high')]
+
+            for label, value in priorities:
+                color = {'low': '#27ae60', 'medium': '#f39c12', 'high': '#e74c3c'}[value]
+                rb = tk.Radiobutton(priority_frame, text=label, variable=self.priority_var,
+                                   value=value, fg=color)
+                rb.pack(side=tk.LEFT, padx=2)
+
+            # Due date input
+            due_frame = tk.Frame(options_frame)
+            due_frame.pack(side=tk.LEFT)
+
+            tk.Label(due_frame, text="Due Date:").pack(side=tk.LEFT, padx=(0, 5))
+
+            self.due_date_var = tk.StringVar(value=current_due_date or '')
+            self.due_entry = tk.Entry(due_frame, textvariable=self.due_date_var,
+                                     width=12, font=('Segoe UI', 10))
+            self.due_entry.pack(side=tk.LEFT)
+
+            tk.Label(due_frame, text="(YYYY-MM-DD)", fg='#7f8c8d',
+                    font=('Segoe UI', 8)).pack(side=tk.LEFT, padx=5)
+
         btn_frame = tk.Frame(self.dialog)
         btn_frame.pack(pady=10)
 
@@ -176,18 +216,14 @@ class EditTaskDialog:
         tk.Button(btn_frame, text="Save",
                  command=self._on_save).pack(side=tk.LEFT, padx=5)
 
-        # Bind Enter key to submit, Shift+Enter for new line
-        self.text_input.bind('<Return>', self._handle_return)
-        self.text_input.bind('<Shift-Return>', lambda e: None)  # Allow default new line
+        # Bug #21 fix: Swap Enter/Shift+Enter - Enter for newline, Shift+Enter to submit
+        # This matches natural text editor behavior (e.g., Slack, Discord)
+        self.text_input.bind('<Shift-Return>', self._handle_shift_return)
 
-    def _handle_return(self, event):
-        """Handle Enter key - submit unless Shift is held"""
-        # Check if Shift is held using keysym for more reliable cross-platform behavior
-        # Fallback to event.state & 0x1 (Shift flag) if keysym check isn't sufficient
-        shift_held = (event.state & 0x1) or event.keysym in ('Shift_L', 'Shift_R')
-        if not shift_held:
-            self._on_save()
-            return 'break'
+    def _handle_shift_return(self, event):
+        """Handle Shift+Enter key - save the task"""
+        self._on_save()
+        return 'break'
 
     def _on_save(self):
         """Handle save button click"""
@@ -197,7 +233,23 @@ class EditTaskDialog:
                                   "Task text cannot be empty!")
             return
 
-        self.on_save_callback(text)
+        if self.show_options:
+            priority = self.priority_var.get()
+            due_date = self.due_date_var.get().strip() or None
+
+            # Validate due date format if provided
+            if due_date:
+                try:
+                    from datetime import datetime
+                    datetime.strptime(due_date, '%Y-%m-%d')
+                except ValueError:
+                    messagebox.showwarning("Invalid Date",
+                                          "Please enter date in YYYY-MM-DD format!")
+                    return
+
+            self.on_save_callback(text, priority, due_date)
+        else:
+            self.on_save_callback(text)
         self.dialog.destroy()
 
 
