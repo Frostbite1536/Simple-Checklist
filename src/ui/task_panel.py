@@ -6,6 +6,7 @@ Handles scrollable task list with checkboxes, subtasks, and notes
 import tkinter as tk
 from tkinter import ttk
 import tkinter.font as tkfont
+from datetime import datetime
 
 
 class TaskPanel:
@@ -153,10 +154,19 @@ class TaskPanel:
                               relief=tk.FLAT, borderwidth=1)
         task_widget.pack(fill=tk.X, pady=5, padx=10)
 
+        # Feature #3: Priority-based left border color
+        priority = task.get('priority', 'medium')
+        priority_colors = {
+            'high': '#e74c3c',    # Red
+            'medium': '#f39c12',  # Orange
+            'low': '#27ae60'      # Green
+        }
+        border_color = priority_colors.get(priority, '#3498db')
+        if task['completed']:
+            border_color = '#95a5a6'  # Gray for completed
+
         # Left border
-        border = tk.Frame(task_widget,
-                        bg='#95a5a6' if task['completed'] else '#3498db',
-                        width=3)
+        border = tk.Frame(task_widget, bg=border_color, width=3)
         border.pack(side=tk.LEFT, fill=tk.Y)
 
         # Main task content
@@ -166,6 +176,14 @@ class TaskPanel:
         # Checkbox and text row
         main_row = tk.Frame(content, bg='#f8f9fa')
         main_row.pack(fill=tk.X)
+
+        # Feature #3: Priority indicator
+        if priority != 'medium' and not task['completed']:
+            priority_symbols = {'high': '●', 'low': '○'}
+            priority_label = tk.Label(main_row, text=priority_symbols.get(priority, ''),
+                                     fg=priority_colors.get(priority, '#3498db'),
+                                     bg='#f8f9fa', font=('Segoe UI', 10))
+            priority_label.pack(side=tk.LEFT, padx=(0, 2))
 
         # Checkbox with explicit styling for visibility
         var = tk.BooleanVar(value=task['completed'])
@@ -233,6 +251,34 @@ class TaskPanel:
         task_text.insert('1.0', task['text'])
         task_text.config(state=tk.DISABLED)
         task_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # Feature #4: Due date display
+        due_date = task.get('due_date')
+        if due_date and not task['completed']:
+            try:
+                due_dt = datetime.strptime(due_date, '%Y-%m-%d')
+                days_left = (due_dt.date() - datetime.now().date()).days
+
+                if days_left < 0:
+                    due_color = '#e74c3c'  # Red - overdue
+                    due_text = f"⚠️ Overdue ({abs(days_left)}d)"
+                elif days_left == 0:
+                    due_color = '#e74c3c'  # Red - due today
+                    due_text = "📌 Due Today"
+                elif days_left <= 3:
+                    due_color = '#f39c12'  # Orange - due soon
+                    due_text = f"📌 Due in {days_left}d"
+                else:
+                    due_color = '#7f8c8d'  # Gray - due later
+                    due_text = f"📅 {due_dt.strftime('%b %d')}"
+
+                due_row = tk.Frame(content, bg='#f8f9fa')
+                due_row.pack(fill=tk.X, pady=(2, 0))
+                due_label = tk.Label(due_row, text=due_text, fg=due_color,
+                                    bg='#f8f9fa', font=('Segoe UI', 9))
+                due_label.pack(side=tk.LEFT, padx=25)
+            except ValueError:
+                pass  # Invalid date format
 
         # Render subtasks
         if task.get('subtasks'):

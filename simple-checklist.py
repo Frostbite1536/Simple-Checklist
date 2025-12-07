@@ -462,20 +462,31 @@ class ChecklistApp:
                                                self.data['current_category'])
 
     def edit_task_dialog(self, task_idx):
-        """Show dialog to edit a task's text"""
+        """Show dialog to edit a task's text, priority, and due date"""
         category = self.get_current_category()
         if not category or task_idx >= len(category['tasks']):
             return
 
-        current_text = category['tasks'][task_idx]['text']
+        task = category['tasks'][task_idx]
+        current_text = task['text']
+        current_priority = task.get('priority', 'medium')
+        current_due_date = task.get('due_date')
 
-        def on_save(new_text):
+        def on_save(new_text, priority=None, due_date=None):
             self.record_state("Edit task")
-            category['tasks'][task_idx]['text'] = new_text
+            task['text'] = new_text
+            if priority is not None:
+                task['priority'] = priority
+            if due_date is not None or 'due_date' in task:
+                task['due_date'] = due_date
             self.save_data()
             self.render_tasks()
 
-        EditTaskDialog(self.root, current_text, on_save)
+        # Show dialog with priority/due date options
+        EditTaskDialog(self.root, current_text, on_save,
+                      current_priority=current_priority,
+                      current_due_date=current_due_date,
+                      show_options=True)
 
     def clear_completed(self):
         """Clear all completed tasks"""
