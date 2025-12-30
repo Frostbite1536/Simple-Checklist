@@ -67,7 +67,10 @@ class Task:
         completed: bool = False,
         notes: Optional[List[str]] = None,
         subtasks: Optional[List[Subtask]] = None,
-        created: Optional[str] = None
+        created: Optional[str] = None,
+        priority: str = 'medium',
+        due_date: Optional[str] = None,
+        reminder: Optional[str] = None
     ):
         """
         Initialize a task
@@ -78,12 +81,18 @@ class Task:
             notes: Optional list of notes
             subtasks: Optional list of Subtask objects
             created: ISO format timestamp of creation (auto-generated if None)
+            priority: Task priority ('low', 'medium', 'high')
+            due_date: Due date in YYYY-MM-DD format
+            reminder: Reminder datetime in ISO format
         """
         self.text = text
         self.completed = completed
         self.notes = notes or []
         self.subtasks = subtasks or []
         self.created = created or datetime.now().isoformat()
+        self.priority = priority
+        self.due_date = due_date
+        self.reminder = reminder
 
     def toggle_completion(self) -> None:
         """Toggle the completion status of this task"""
@@ -159,6 +168,16 @@ class Task:
         if self.subtasks:
             result['subtasks'] = [st.to_dict() for st in self.subtasks]
 
+        # Include priority, due_date, and reminder if set
+        if self.priority != 'medium':
+            result['priority'] = self.priority
+
+        if self.due_date:
+            result['due_date'] = self.due_date
+
+        if self.reminder:
+            result['reminder'] = self.reminder
+
         return result
 
     @classmethod
@@ -177,11 +196,14 @@ class Task:
             subtasks = [Subtask.from_dict(st) for st in data['subtasks']]
 
         return cls(
-            text=data['text'],
+            text=data.get('text', ''),  # Default to empty string if missing
             completed=data.get('completed', False),
             notes=data.get('notes', []),
             subtasks=subtasks,
-            created=data.get('created')
+            created=data.get('created'),
+            priority=data.get('priority', 'medium'),
+            due_date=data.get('due_date'),
+            reminder=data.get('reminder')
         )
 
     def __repr__(self) -> str:

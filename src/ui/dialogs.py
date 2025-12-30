@@ -370,6 +370,12 @@ class ReminderDialog:
                                       "Please enter at least one time value!")
                 return
 
+            # Validate that values are not negative
+            if minutes < 0 or hours < 0 or days < 0:
+                messagebox.showwarning("Invalid Input",
+                                      "Time values cannot be negative!")
+                return
+
             reminder_time = datetime.now() + timedelta(
                 days=days, hours=hours, minutes=minutes
             )

@@ -765,14 +765,48 @@ class ChecklistApp:
                     self.data = {'categories': [], 'current_category': None}
 
     def migrate_data(self):
-        """Migrate old data structures to current format"""
-        # Ensure all subtasks have 'completed' key
-        for category in self.data.get('categories', []):
+        """Migrate old data structures to current format and validate required fields"""
+        categories = self.data.get('categories', [])
+        valid_categories = []
+
+        for category in categories:
+            # Validate category has required fields
+            if 'id' not in category:
+                continue  # Skip malformed categories
+            if 'name' not in category:
+                category['name'] = f"Category {category['id']}"  # Provide default name
+            if 'tasks' not in category:
+                category['tasks'] = []
+
+            # Validate and clean tasks
+            valid_tasks = []
             for task in category.get('tasks', []):
+                # Skip tasks without text (required field)
+                if 'text' not in task or not task['text']:
+                    continue
+
+                # Ensure required fields have defaults
+                if 'completed' not in task:
+                    task['completed'] = False
+
+                # Ensure all subtasks have 'completed' key
                 if 'subtasks' in task:
+                    valid_subtasks = []
                     for subtask in task['subtasks']:
+                        # Skip subtasks without text
+                        if 'text' not in subtask or not subtask['text']:
+                            continue
                         if 'completed' not in subtask:
                             subtask['completed'] = False
+                        valid_subtasks.append(subtask)
+                    task['subtasks'] = valid_subtasks
+
+                valid_tasks.append(task)
+
+            category['tasks'] = valid_tasks
+            valid_categories.append(category)
+
+        self.data['categories'] = valid_categories
 
     def save_settings(self):
         """Save settings to JSON file"""
