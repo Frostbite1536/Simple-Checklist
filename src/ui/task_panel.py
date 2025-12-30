@@ -242,7 +242,19 @@ class TaskPanel:
             text_style['font'] = ('Segoe UI', 11)
 
         # Calculate height based on number of lines in text
-        line_count = task['text'].count('\n') + 1
+        # Bug fix: Account for both explicit newlines AND potential word-wrap lines
+        explicit_lines = task['text'].count('\n') + 1
+
+        # Estimate additional lines from word wrap
+        # Assume approximately 60 characters per visual line as a conservative estimate
+        # This ensures long single-line text will have adequate height
+        text_length = len(task['text'])
+        chars_per_line = 60
+        estimated_wrap_lines = max(1, (text_length + chars_per_line - 1) // chars_per_line)
+
+        # Use the maximum of explicit lines and estimated wrap lines
+        # Cap at 10 lines to prevent extremely long tasks from dominating the view
+        line_count = min(max(explicit_lines, estimated_wrap_lines), 10)
 
         # Use Text widget for selectable/copyable text - pack AFTER buttons
         task_text = tk.Text(main_row, height=line_count,
@@ -366,5 +378,6 @@ class TaskPanel:
             note_label = tk.Label(notes_frame, text=f"• {note}",
                                 bg='#f8f9fa', fg='#7f8c8d',
                                 font=('Segoe UI', 9),
-                                anchor='w', cursor='xterm')
+                                anchor='w', cursor='xterm',
+                                wraplength=400, justify=tk.LEFT)
             note_label.pack(fill=tk.X)
