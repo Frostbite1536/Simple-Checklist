@@ -718,8 +718,8 @@ class ChecklistApp:
     def save_data(self):
         """Save data to JSON file"""
         try:
-            with open(self.data_file, 'w') as f:
-                json.dump(self.data, f, indent=2)
+            with open(self.data_file, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, indent=2, ensure_ascii=False)
         except (IOError, OSError) as e:
             messagebox.showerror("Error Saving Data",
                                 f"Failed to save checklist:\n{str(e)}")
@@ -738,7 +738,7 @@ class ChecklistApp:
                 pass  # Backup creation is best-effort
 
             try:
-                with open(self.data_file, 'r') as f:
+                with open(self.data_file, 'r', encoding='utf-8') as f:
                     self.data = json.load(f)
                 # Migrate old data to ensure consistency
                 self.migrate_data()
@@ -747,7 +747,7 @@ class ChecklistApp:
                 recovered = False
                 if os.path.exists(backup_file):
                     try:
-                        with open(backup_file, 'r') as f:
+                        with open(backup_file, 'r', encoding='utf-8') as f:
                             self.data = json.load(f)
                         self.migrate_data()
                         recovered = True
@@ -765,20 +765,54 @@ class ChecklistApp:
                     self.data = {'categories': [], 'current_category': None}
 
     def migrate_data(self):
-        """Migrate old data structures to current format"""
-        # Ensure all subtasks have 'completed' key
-        for category in self.data.get('categories', []):
+        """Migrate old data structures to current format and validate required fields"""
+        categories = self.data.get('categories', [])
+        valid_categories = []
+
+        for category in categories:
+            # Validate category has required fields
+            if 'id' not in category:
+                continue  # Skip malformed categories
+            if 'name' not in category:
+                category['name'] = f"Category {category['id']}"  # Provide default name
+            if 'tasks' not in category:
+                category['tasks'] = []
+
+            # Validate and clean tasks
+            valid_tasks = []
             for task in category.get('tasks', []):
+                # Skip tasks without text (required field)
+                if 'text' not in task or not task['text']:
+                    continue
+
+                # Ensure required fields have defaults
+                if 'completed' not in task:
+                    task['completed'] = False
+
+                # Ensure all subtasks have 'completed' key
                 if 'subtasks' in task:
+                    valid_subtasks = []
                     for subtask in task['subtasks']:
+                        # Skip subtasks without text
+                        if 'text' not in subtask or not subtask['text']:
+                            continue
                         if 'completed' not in subtask:
                             subtask['completed'] = False
+                        valid_subtasks.append(subtask)
+                    task['subtasks'] = valid_subtasks
+
+                valid_tasks.append(task)
+
+            category['tasks'] = valid_tasks
+            valid_categories.append(category)
+
+        self.data['categories'] = valid_categories
 
     def save_settings(self):
         """Save settings to JSON file"""
         try:
-            with open(self.settings_file, 'w') as f:
-                json.dump(self.settings, f, indent=2)
+            with open(self.settings_file, 'w', encoding='utf-8') as f:
+                json.dump(self.settings, f, indent=2, ensure_ascii=False)
         except (IOError, OSError) as e:
             messagebox.showerror("Error Saving Settings",
                                 f"Failed to save settings:\n{str(e)}")
@@ -787,7 +821,7 @@ class ChecklistApp:
         """Load settings from JSON file"""
         if os.path.exists(self.settings_file):
             try:
-                with open(self.settings_file, 'r') as f:
+                with open(self.settings_file, 'r', encoding='utf-8') as f:
                     loaded = json.load(f)
                     self.settings.update(loaded)
             except (json.JSONDecodeError, IOError, OSError):
@@ -850,7 +884,7 @@ class ChecklistApp:
         backup_file = self.data_file
 
         try:
-            with open(filename, 'r') as f:
+            with open(filename, 'r', encoding='utf-8') as f:
                 loaded_data = json.load(f)
 
             # Validate the data structure

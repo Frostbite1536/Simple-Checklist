@@ -39,6 +39,9 @@ class TaskSearcher:
                 if not include_completed and task.get('completed', False):
                     continue
 
+                # Track if task already matched to prevent duplicates
+                matched = False
+
                 # Check main task text
                 if query_lower in task.get('text', '').lower():
                     results.append({
@@ -48,31 +51,34 @@ class TaskSearcher:
                         'task': task,
                         'match_type': 'task'
                     })
-                    continue
+                    matched = True
 
-                # Check subtasks
-                for subtask in task.get('subtasks', []):
-                    if query_lower in subtask.get('text', '').lower():
-                        results.append({
-                            'category_id': cat['id'],
-                            'category_name': cat['name'],
-                            'task_idx': task_idx,
-                            'task': task,
-                            'match_type': 'subtask'
-                        })
-                        break
+                # Check subtasks (only if not already matched)
+                if not matched:
+                    for subtask in task.get('subtasks', []):
+                        if query_lower in subtask.get('text', '').lower():
+                            results.append({
+                                'category_id': cat['id'],
+                                'category_name': cat['name'],
+                                'task_idx': task_idx,
+                                'task': task,
+                                'match_type': 'subtask'
+                            })
+                            matched = True
+                            break
 
-                # Check notes
-                for note in task.get('notes', []):
-                    if query_lower in note.lower():
-                        results.append({
-                            'category_id': cat['id'],
-                            'category_name': cat['name'],
-                            'task_idx': task_idx,
-                            'task': task,
-                            'match_type': 'note'
-                        })
-                        break
+                # Check notes (only if not already matched)
+                if not matched:
+                    for note in task.get('notes', []):
+                        if query_lower in note.lower():
+                            results.append({
+                                'category_id': cat['id'],
+                                'category_name': cat['name'],
+                                'task_idx': task_idx,
+                                'task': task,
+                                'match_type': 'note'
+                            })
+                            break
 
         return results
 
