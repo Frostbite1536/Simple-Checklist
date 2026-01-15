@@ -118,12 +118,21 @@ class Shortcuts:
     CATEGORY_7 = '<Control-Key-7>'
     CATEGORY_8 = '<Control-Key-8>'
     CATEGORY_9 = '<Control-Key-9>'
+    # Undo/Redo
+    UNDO = '<Control-z>'
+    REDO = '<Control-y>'
+    REDO_ALT = '<Control-Shift-z>'
+    # Search
+    SEARCH = '<Control-f>'
+    # Navigation
+    PREV_CATEGORY = '<Control-Left>'
+    NEXT_CATEGORY = '<Control-Right>'
 
 
 class Messages:
     """User-facing messages"""
     # Hints
-    HINT_TEXT = "💡 Shift+Enter: New task | Ctrl+Enter: Add sub-task | Ctrl+1-9: Switch categories"
+    HINT_TEXT = "💡 Shift+Enter: New task | Ctrl+Z: Undo | Ctrl+F: Search | Ctrl+1-9: Switch categories"
 
     # Empty states
     NO_CATEGORY_SELECTED = "No category selected"

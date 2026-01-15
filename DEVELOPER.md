@@ -57,7 +57,7 @@ Defines the core data structures and business logic.
 
 **Classes:**
 - `Subtask`: Represents a nested checklist item
-- `Task`: Represents a main task with optional subtasks and notes
+- `Task`: Represents a main task with optional subtasks, notes, priority, due date, and reminder
 
 **Key Methods:**
 ```python
@@ -66,12 +66,24 @@ subtask = Subtask("Buy milk", completed=False)
 subtask.toggle_completion()
 data = subtask.to_dict()
 
-# Task
-task = Task("Complete project", notes=["Important"])
+# Task with all optional fields
+task = Task(
+    "Complete project",
+    notes=["Important"],
+    priority='high',           # 'low', 'medium', 'high'
+    due_date='2025-12-31',     # YYYY-MM-DD format
+    reminder='2025-12-30T09:00:00'  # ISO datetime
+)
 task.add_subtask(Subtask("Write code"))
 task.toggle_completion()
 count = task.get_subtask_count()
 is_done = task.is_fully_completed()  # True if task and all subtasks done
+
+# Properties
+task.priority    # 'low', 'medium', or 'high' (default: 'medium')
+task.due_date    # Date string or None
+task.reminder    # ISO datetime string or None
+task.created     # Auto-generated ISO timestamp
 ```
 
 #### `category.py`
@@ -190,6 +202,77 @@ settings.reset_to_defaults()
 ### Feature Modules (`src/features/`)
 
 Specialized functionality that can be used independently.
+
+#### `undo_manager.py`
+
+**Class:** `UndoManager`
+
+Manages undo/redo state history for the application.
+
+**Key Methods:**
+```python
+undo_manager = UndoManager(max_history=20)
+
+# Record state before a change
+undo_manager.record_state(current_data, "Add task")
+
+# Undo/Redo operations
+previous_state = undo_manager.undo(current_data)  # Returns state to restore
+redo_state = undo_manager.redo(current_data)      # Returns state to redo
+
+# Query
+can_undo = undo_manager.can_undo()
+can_redo = undo_manager.can_redo()
+description = undo_manager.get_undo_description()
+
+# Clear history
+undo_manager.clear()
+```
+
+#### `search.py`
+
+**Class:** `TaskSearcher`
+
+Provides search and filtering across tasks.
+
+**Key Methods:**
+```python
+# Search tasks across categories
+results = TaskSearcher.search_tasks(
+    categories,           # List of category dicts
+    query,                # Search query string
+    category_id=None,     # Optional: limit to specific category
+    include_completed=True  # Include completed tasks in results
+)
+# Returns: [{'category_id': 1, 'category_name': 'Work', 'task_idx': 0, 'task': {...}, 'match_type': 'task'}, ...]
+
+# Filter by status
+completed_tasks = TaskSearcher.filter_by_status(tasks, completed=True)
+pending_tasks = TaskSearcher.filter_by_status(tasks, completed=False)
+
+# Filter by reminder
+tasks_with_reminders = TaskSearcher.filter_by_reminder(tasks, has_reminder=True)
+```
+
+#### `task_sorting.py`
+
+**Class:** `TaskSorter`
+
+Provides various sorting options for tasks.
+
+**Key Methods:**
+```python
+# Sort by specific criteria
+TaskSorter.sort_tasks(tasks, sort_by='created', reverse=False)
+# sort_by options: 'created', 'due_date', 'priority', 'completion', 'a-z'
+
+# Smart sort (recommended)
+# Sorts: incomplete first, then by priority (high→low), then by due date (earliest first)
+TaskSorter.sort_smart(tasks)
+
+# Priority order constant
+TaskSorter.PRIORITY_ORDER  # {'high': 0, 'medium': 1, 'low': 2}
+```
 
 #### `drag_drop.py`
 
@@ -433,9 +516,41 @@ input_area.set_bg_color('#FFEECC')
 input_area.focus()
 ```
 
+#### `search_bar.py`
+
+**Class:** `SearchBar`
+
+Real-time search bar component.
+
+**Constructor:**
+```python
+search_bar = SearchBar(
+    parent_widget,
+    on_search_callback=self.search_tasks,   # (query: str) -> None
+    on_clear_callback=self.clear_search     # () -> None
+)
+search_bar.pack(fill=tk.X, padx=20, pady=(10, 0))
+```
+
+**Key Methods:**
+```python
+# Get current query
+query = search_bar.get_query()
+
+# Clear search
+search_bar.clear()
+
+# Check if search is active
+if search_bar.is_active():
+    print("Search in progress")
+
+# Set focus
+search_bar.focus()
+```
+
 #### `dialogs.py`
 
-**Classes:** `AddCategoryDialog`, `AddSubtaskDialog`
+**Classes:** `AddCategoryDialog`, `AddSubtaskDialog`, `EditTaskDialog`, `EditCategoryDialog`, `ReminderDialog`
 
 Modal dialogs for user input.
 
@@ -450,6 +565,23 @@ def on_subtask_added(text):
     print(f"Adding subtask: {text}")
 
 dialog = AddSubtaskDialog(parent_window, on_subtask_added)
+
+# Edit task with priority and due date
+def on_task_saved(new_text, priority, due_date):
+    print(f"Task: {new_text}, Priority: {priority}, Due: {due_date}")
+
+dialog = EditTaskDialog(
+    parent_window, current_text, on_task_saved,
+    current_priority='medium',
+    current_due_date='2025-12-31',
+    show_options=True  # Show priority and due date fields
+)
+
+# Set reminder
+def on_reminder_set(reminder_iso):
+    print(f"Reminder set for: {reminder_iso}")
+
+dialog = ReminderDialog(parent_window, task_text, on_reminder_set, current_reminder=None)
 ```
 
 ---
@@ -829,5 +961,5 @@ This project is licensed under the MIT License. See LICENSE file for details.
 
 ---
 
-*Last updated: December 2025*
-*Version: 3.0*
+*Last updated: January 2026*
+*Version: 3.1*

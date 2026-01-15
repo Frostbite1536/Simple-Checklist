@@ -14,10 +14,20 @@ A lightweight, keyboard-driven task manager with categories, nested sub-tasks, a
 - **Text Selection**: Easily select and copy checklist item text
 - **Keyboard Shortcuts**: Navigate and manage tasks without touching the mouse
 
+### Advanced Features
+- **Undo/Redo**: Full undo/redo support (Ctrl+Z / Ctrl+Y) for all task operations
+- **Search & Filter**: Real-time search across tasks, subtasks, and notes (Ctrl+F)
+- **Task Sorting**: Sort tasks by priority, due date, creation date, completion status, or alphabetically
+- **Smart Sort**: Intelligent sorting that prioritizes incomplete high-priority tasks with upcoming due dates
+- **Task Priority**: Set priority levels (Low, Medium, High) with color-coded indicators
+- **Due Dates**: Add due dates to tasks with visual overdue/upcoming warnings
+- **Task Reminders**: Set time-based reminders with system notifications
+
 ### UI Features
 - Clean, modern interface with category sidebar
 - Visual task completion indicators
-- Color-coded task states
+- Color-coded priority borders (Red=High, Orange=Medium, Green=Low)
+- Due date indicators with overdue warnings
 - Scrollable task lists
 - Responsive layout
 
@@ -53,15 +63,41 @@ python simple-checklist.py
 
 ### Keyboard Shortcuts
 - **Shift+Enter**: Add a new task
-- **Ctrl+1-9**: Quickly switch between categories (1 for first category, 2 for second, etc.)
+- **Ctrl+1-9** or **Alt+1-9**: Quickly switch between categories (1 for first category, 2 for second, etc.)
+- **Ctrl+Left/Right Arrow**: Navigate to previous/next category (useful for 10+ categories)
+- **Ctrl+Z**: Undo last action
+- **Ctrl+Y** or **Ctrl+Shift+Z**: Redo last undone action
+- **Ctrl+F**: Focus search bar
 - **Enter**: Add a new line in the task input (for task notes)
+- **Escape**: Clear search (when search bar is focused)
 
 ### Managing Tasks
 - **Add a task**: Type in the input box and press `Shift+Enter`
 - **Add sub-tasks**: Click the `+` button next to any task to add nested checklist items
 - **Complete a task**: Check the checkbox next to the task
+- **Edit a task**: Click the `✎` button to edit text, set priority, and add due date
 - **Delete a task**: Click the `×` button on the right side of the task
+- **Set a reminder**: Click the `🔔` button to set a timed reminder
 - **Select/Copy text**: Click and drag to select any task or sub-task text, then copy with Ctrl+C
+
+### Task Priority & Due Dates
+- **Setting Priority**: When editing a task, choose Low (green), Medium (orange), or High (red) priority
+- **Setting Due Date**: Enter a date in YYYY-MM-DD format when editing a task
+- **Visual Indicators**: Tasks show colored left borders based on priority
+- **Due Date Warnings**:
+  - Overdue tasks show "⚠️ Overdue"
+  - Tasks due today show "📌 Due Today"
+  - Tasks due within 3 days show "📌 Due in Xd"
+
+### Searching & Sorting
+- **Search**: Use the search bar (Ctrl+F) to find tasks by text, subtask content, or notes
+- **Sort Menu**: Use the Sort menu to organize tasks:
+  - **Smart Sort** (Recommended): Incomplete first, then by priority, then by due date
+  - **By Priority**: High to Low priority
+  - **By Due Date**: Earliest first
+  - **By Creation Date**: Oldest first
+  - **Alphabetically**: A to Z
+  - **By Completion Status**: Incomplete first
 
 ### Managing Categories
 - **Add a category**: Click the `+ Add Category` button in the sidebar
@@ -117,6 +153,9 @@ python simple-checklist.py
           "text": "Main task",
           "completed": false,
           "created": "2025-12-05T10:30:00",
+          "priority": "high",
+          "due_date": "2025-12-10",
+          "reminder": "2025-12-10T09:00:00",
           "subtasks": [
             {
               "text": "Sub-task 1",
@@ -131,6 +170,16 @@ python simple-checklist.py
   "current_category": 1
 }
 ```
+
+**Task Fields:**
+- `text` (required): The task description
+- `completed` (required): Boolean completion status
+- `created` (auto): ISO timestamp of when the task was created
+- `priority` (optional): "low", "medium", or "high" (default: "medium")
+- `due_date` (optional): Date in YYYY-MM-DD format
+- `reminder` (optional): ISO datetime for reminder notification
+- `subtasks` (optional): Array of subtask objects
+- `notes` (optional): Array of note strings
 
 ## Platform Support
 
@@ -179,6 +228,9 @@ simple-checklist/
 │   │   ├── storage.py       # ChecklistStorage for JSON I/O
 │   │   └── settings.py      # SettingsManager for user preferences
 │   ├── features/            # Feature modules
+│   │   ├── undo_manager.py  # Undo/Redo state management
+│   │   ├── search.py        # Task search and filtering
+│   │   ├── task_sorting.py  # Task sorting algorithms
 │   │   ├── drag_drop.py     # Drag-and-drop manager
 │   │   ├── export.py        # Markdown exporter
 │   │   └── shortcuts.py     # Keyboard shortcut manager
@@ -187,6 +239,7 @@ simple-checklist/
 │   │   ├── sidebar.py       # Category sidebar component
 │   │   ├── task_panel.py    # Task display panel
 │   │   ├── input_area.py    # Task input component
+│   │   ├── search_bar.py    # Search bar component
 │   │   └── dialogs.py       # Dialog windows
 │   └── utils/               # Utility functions
 │       └── constants.py     # Application constants
@@ -239,7 +292,17 @@ All tests pass with 100% success rate (excluding 6 environment-dependent UI test
 
 ## Changelog
 
-### Version 3.0 (Current)
+### Version 3.1 (Current)
+- **Undo/Redo Support**: Full undo/redo for all task operations (Ctrl+Z / Ctrl+Y)
+- **Search & Filter**: Real-time search across tasks, subtasks, and notes (Ctrl+F)
+- **Task Sorting**: Multiple sort options including Smart Sort
+- **Task Priority**: Low/Medium/High priority levels with visual indicators
+- **Due Dates**: Add due dates with overdue/upcoming warnings
+- **Task Reminders**: Time-based reminders with system notifications
+- **Enhanced Navigation**: Ctrl+Arrow keys for 10+ categories, Alt+1-9 fallback shortcuts
+- Updated documentation to reflect all new features
+
+### Version 3.0
 - **Major refactor to modular architecture**
 - Extracted UI components into separate modules
 - Added comprehensive test suite (121 tests)
