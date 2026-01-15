@@ -32,7 +32,11 @@ task = Task(
     text: str,
     completed: bool = False,
     notes: list = None,
-    created: str = None  # ISO format timestamp
+    subtasks: list = None,
+    created: str = None,           # ISO format timestamp (auto-generated)
+    priority: str = 'medium',      # 'low', 'medium', 'high'
+    due_date: str = None,          # YYYY-MM-DD format
+    reminder: str = None           # ISO datetime format
 )
 
 # Methods
@@ -52,6 +56,9 @@ task.completed: bool
 task.notes: list
 task.subtasks: list
 task.created: str
+task.priority: str        # 'low', 'medium', or 'high'
+task.due_date: str | None # YYYY-MM-DD format
+task.reminder: str | None # ISO datetime format
 ```
 
 ### Category
@@ -161,6 +168,70 @@ settings.import_settings(data: dict) -> None
 ---
 
 ## Features (`src/features/`)
+
+### UndoManager
+
+```python
+from src.features.undo_manager import UndoManager
+
+# Create
+undo_manager = UndoManager(max_history: int = 20)
+
+# Methods
+undo_manager.record_state(state: dict, action_description: str = "") -> None
+previous = undo_manager.undo(current_state: dict) -> dict | None
+redo_state = undo_manager.redo(current_state: dict) -> dict | None
+undo_manager.can_undo() -> bool
+undo_manager.can_redo() -> bool
+undo_manager.get_undo_description() -> str | None
+undo_manager.get_redo_description() -> str | None
+undo_manager.clear() -> None
+```
+
+### TaskSearcher
+
+```python
+from src.features.search import TaskSearcher
+
+# Static methods
+results = TaskSearcher.search_tasks(
+    categories: list,         # List of category dicts
+    query: str,               # Search query
+    category_id: int = None,  # Limit to specific category
+    include_completed: bool = True
+) -> list[dict]
+# Returns: [{'category_id': int, 'category_name': str, 'task_idx': int,
+#            'task': dict, 'match_type': str}, ...]
+
+filtered = TaskSearcher.filter_by_status(
+    tasks: list,
+    completed: bool = None    # None=all, True=completed, False=pending
+) -> list[dict]
+
+filtered = TaskSearcher.filter_by_reminder(
+    tasks: list,
+    has_reminder: bool = True
+) -> list[dict]
+```
+
+### TaskSorter
+
+```python
+from src.features.task_sorting import TaskSorter
+
+# Class constant
+TaskSorter.PRIORITY_ORDER  # {'high': 0, 'medium': 1, 'low': 2}
+
+# Static methods
+TaskSorter.sort_tasks(
+    tasks: list,
+    sort_by: str = 'created',  # 'created', 'due_date', 'priority', 'completion', 'a-z'
+    reverse: bool = False
+) -> list
+
+TaskSorter.sort_smart(tasks: list) -> list
+# Sorts: incomplete first, then priority (high→low), then due date (earliest first)
+```
 
 ### DragDropManager
 
@@ -353,6 +424,26 @@ input_area.set_bg_color(color: str) -> None
 input_area.focus() -> None
 ```
 
+### SearchBar
+
+```python
+from src.ui import SearchBar
+
+# Create
+search_bar = SearchBar(
+    parent: tk.Widget,
+    on_search_callback: callable,   # (query: str) -> None
+    on_clear_callback: callable     # () -> None
+)
+
+# Methods
+search_bar.pack(**kwargs) -> None
+query = search_bar.get_query() -> str
+search_bar.clear() -> None
+search_bar.is_active() -> bool
+search_bar.focus() -> None
+```
+
 ### AddCategoryDialog
 
 ```python
@@ -365,6 +456,19 @@ dialog = AddCategoryDialog(
 )
 ```
 
+### EditCategoryDialog
+
+```python
+from src.ui import EditCategoryDialog
+
+# Create (automatically shows dialog)
+dialog = EditCategoryDialog(
+    parent: tk.Widget,
+    current_name: str,
+    on_save_callback: callable  # (new_name: str) -> None
+)
+```
+
 ### AddSubtaskDialog
 
 ```python
@@ -374,6 +478,36 @@ from src.ui import AddSubtaskDialog
 dialog = AddSubtaskDialog(
     parent: tk.Widget,
     on_add_callback: callable  # (text: str) -> None
+)
+```
+
+### EditTaskDialog
+
+```python
+from src.ui import EditTaskDialog
+
+# Create (automatically shows dialog)
+dialog = EditTaskDialog(
+    parent: tk.Widget,
+    current_text: str,
+    on_save_callback: callable,  # (text: str, priority: str, due_date: str|None) -> None
+    current_priority: str = 'medium',  # 'low', 'medium', 'high'
+    current_due_date: str = None,      # YYYY-MM-DD
+    show_options: bool = True          # Show priority/due date fields
+)
+```
+
+### ReminderDialog
+
+```python
+from src.ui import ReminderDialog
+
+# Create (automatically shows dialog)
+dialog = ReminderDialog(
+    parent: tk.Widget,
+    task_text: str,
+    on_set_callback: callable,   # (reminder_iso: str) -> None
+    current_reminder: str = None # ISO datetime format
 )
 ```
 
@@ -399,7 +533,10 @@ dialog = AddSubtaskDialog(
     'completed': bool,              # Completion status
     'notes': list[str],             # Optional notes
     'subtasks': list[dict],         # Optional subtasks
-    'created': str                  # ISO timestamp
+    'created': str,                 # ISO timestamp
+    'priority': str,                # 'low', 'medium', 'high' (default: 'medium')
+    'due_date': str | None,         # YYYY-MM-DD format
+    'reminder': str | None          # ISO datetime format
 }
 ```
 
@@ -525,3 +662,8 @@ if task is None:
 ---
 
 *For detailed usage examples and guides, see [DEVELOPER.md](DEVELOPER.md)*
+
+---
+
+*Last updated: January 2026*
+*Version: 3.1*
