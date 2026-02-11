@@ -12,6 +12,7 @@ Features:
 
 import tkinter as tk
 from tkinter import messagebox, filedialog, colorchooser
+import copy
 import json
 import os
 from datetime import datetime
@@ -323,7 +324,8 @@ class ChecklistApp:
             empty.pack(pady=50)
             return
 
-        # Render each matching task
+        # Render each matching task using the original task index from the category
+        # so that toggle/delete/edit callbacks operate on the correct task
         for result in results:
             self.task_panel._render_task(result['task_idx'], result['task'])
 
@@ -450,8 +452,12 @@ class ChecklistApp:
             category['tasks'].append({
                 'text': text,
                 'notes': [],
+                'subtasks': [],
                 'completed': False,
-                'created': datetime.now().isoformat()
+                'created': datetime.now().isoformat(),
+                'priority': 'medium',
+                'due_date': None,
+                'reminder': None
             })
             self.save_data()
             self.render_tasks()
@@ -880,7 +886,7 @@ class ChecklistApp:
     def load_checklist_file(self, filename):
         """Load a specific checklist file"""
         # Keep backup of current data in case load fails
-        backup_data = self.data.copy()
+        backup_data = copy.deepcopy(self.data)
         backup_file = self.data_file
 
         try:

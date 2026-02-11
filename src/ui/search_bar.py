@@ -32,7 +32,7 @@ class SearchBar:
 
         # Search entry
         self.search_var = tk.StringVar()
-        self.search_var.trace('w', self._on_search_change)
+        self.search_var.trace_add('write', self._on_search_change)
 
         self.search_entry = tk.Entry(self.frame, textvariable=self.search_var,
                                      font=('Segoe UI', 10), width=25,

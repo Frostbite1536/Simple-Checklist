@@ -124,8 +124,13 @@ class Sidebar:
 
     def _on_mousewheel(self, event):
         """Handle mousewheel scroll (Windows/Mac)"""
-        # Bug #20 fix: Increased scroll speed from 1 to 3 units for more responsive scrolling
-        self.canvas.yview_scroll(int(-1 * (event.delta / 120)) * 3, 'units')
+        # On Windows, event.delta is a multiple of 120; on macOS it is +/-1.
+        # Normalize to a consistent scroll direction and apply a 3-unit speed.
+        if abs(event.delta) >= 120:
+            direction = -1 if event.delta > 0 else 1
+        else:
+            direction = -1 if event.delta > 0 else 1
+        self.canvas.yview_scroll(direction * 3, 'units')
 
     def _on_mousewheel_linux(self, event):
         """Handle mousewheel scroll (Linux)"""
