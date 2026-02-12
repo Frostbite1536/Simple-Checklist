@@ -89,6 +89,6 @@ class InputArea:
     def has_focus(self):
         """Check if the input field currently has focus"""
         try:
-            return self.task_input.focus_displayof() == self.task_input
+            return self.task_input.focus_get() is self.task_input
         except (tk.TclError, AttributeError):
             return False
