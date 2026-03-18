@@ -256,7 +256,6 @@ class EditTaskDialog:
             # Validate due date format if provided
             if due_date:
                 try:
-                    from datetime import datetime
                     datetime.strptime(due_date, '%Y-%m-%d')
                 except ValueError:
                     messagebox.showwarning("Invalid Date",

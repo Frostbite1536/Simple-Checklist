@@ -100,7 +100,14 @@ class SearchBar:
 
     def apply_theme(self, theme_colors):
         """Apply theme colors to the search bar"""
-        self.frame.config(bg=theme_colors.CONTENT_BG)
+        bg = theme_colors.CONTENT_BG
+        fg = theme_colors.CONTENT_TEXT
+        self.frame.config(bg=bg)
+        self.search_entry.config(bg=bg, fg=fg, insertbackground=fg)
+        # Update search label
+        for widget in self.frame.winfo_children():
+            if isinstance(widget, tk.Label):
+                widget.config(bg=bg, fg=theme_colors.HINT_TEXT)
 
     def is_active(self):
         """Check if there's an active search"""

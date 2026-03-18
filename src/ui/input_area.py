@@ -84,7 +84,15 @@ class InputArea:
 
     def apply_theme(self, theme_colors):
         """Apply theme colors to the input area"""
-        self.frame.config(bg=theme_colors.INPUT_AREA_BG)
+        bg = theme_colors.INPUT_AREA_BG
+        self.frame.config(bg=bg)
+        self.task_input.config(bg=theme_colors.DEFAULT_INPUT_BG,
+                              fg=theme_colors.CONTENT_TEXT,
+                              insertbackground=theme_colors.CONTENT_TEXT)
+        # Update hint label
+        for widget in self.frame.winfo_children():
+            if isinstance(widget, tk.Label):
+                widget.config(bg=bg, fg=theme_colors.HINT_TEXT)
 
     def focus(self):
         """Set focus to the input field"""

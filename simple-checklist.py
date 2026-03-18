@@ -114,7 +114,7 @@ class ChecklistApp:
             'on_new_checklist': self.new_checklist,
             'on_open_checklist': self.open_checklist,
             'on_save_as': self.save_checklist_as,
-            'on_exit': self.root.quit,
+            'on_exit': self._on_close,
             'on_change_color': self.change_input_color,
             'on_export_markdown': self.export_markdown,
             'on_clear_completed': self.clear_completed,
@@ -359,6 +359,12 @@ class ChecklistApp:
             self.clear_search()
             return
 
+        # Reset filter when searching
+        if self.active_filter != 'all':
+            self.active_filter = 'all'
+            self.task_panel.active_filter = 'all'
+            self.task_panel._update_filter_buttons()
+
         results = TaskSearcher.search_tasks(
             self.checklist.categories,
             query,
@@ -436,6 +442,9 @@ class ChecklistApp:
 
     def filter_tasks(self, filter_key):
         """Filter tasks by criteria"""
+        # Clear search when applying a filter
+        if self.search_bar.is_active():
+            self.search_bar.clear()
         self.active_filter = filter_key
         self.render_tasks()
 
@@ -457,6 +466,10 @@ class ChecklistApp:
 
     def switch_category(self, cat_id):
         """Switch to a different category"""
+        # Clear selection mode when switching categories
+        if self.task_panel.selection_mode:
+            self.task_panel.toggle_selection_mode()
+
         self.checklist.current_category_id = cat_id
         self.sidebar.render_categories(self.checklist.categories,
                                        self.checklist.current_category_id)
@@ -557,10 +570,14 @@ class ChecklistApp:
             # Handle recurring tasks
             if task.recurrence and not task.completed:
                 # Task is being completed — advance due date and keep uncompleted
-                self._advance_recurring_task(task)
-                self.save_data()
-                self.render_tasks()
-                return
+                try:
+                    self._advance_recurring_task(task)
+                    self.save_data()
+                    self.render_tasks()
+                    return
+                except Exception:
+                    # Fall through to normal toggle if recurring logic fails
+                    pass
 
             task.toggle_completion()
             self.save_data()
@@ -568,7 +585,7 @@ class ChecklistApp:
 
     def _advance_recurring_task(self, task):
         """Advance a recurring task's due date instead of completing it"""
-        from dateutil.relativedelta import relativedelta
+        from datetime import timedelta
         today = datetime.now().date()
 
         if task.due_date:
@@ -580,11 +597,18 @@ class ChecklistApp:
             base_date = today
 
         if task.recurrence == 'daily':
-            next_date = base_date + relativedelta(days=1)
+            next_date = base_date + timedelta(days=1)
         elif task.recurrence == 'weekly':
-            next_date = base_date + relativedelta(weeks=1)
+            next_date = base_date + timedelta(weeks=1)
         elif task.recurrence == 'monthly':
-            next_date = base_date + relativedelta(months=1)
+            # Advance by one month using calendar math (no dateutil needed)
+            month = base_date.month % 12 + 1
+            year = base_date.year + (1 if base_date.month == 12 else 0)
+            # Clamp day to valid range for the target month
+            import calendar
+            max_day = calendar.monthrange(year, month)[1]
+            day = min(base_date.day, max_day)
+            next_date = base_date.replace(year=year, month=month, day=day)
         else:
             next_date = base_date
 

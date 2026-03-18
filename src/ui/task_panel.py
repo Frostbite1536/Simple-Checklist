@@ -176,13 +176,12 @@ class TaskPanel:
             self.action_bar.pack_forget()
 
     def _select_all_tasks(self):
-        """Select all visible tasks"""
+        """Select all visible tasks and update checkbox state"""
         for item in self.task_widgets:
             self.selected_tasks.add(item['index'])
-        # Re-render to update checkboxes
-        if self.on_toggle_selection:
-            # Just re-render, don't toggle mode
-            pass
+            # Update the checkbox variable if it exists
+            if 'sel_var' in item:
+                item['sel_var'].set(True)
 
     def _update_filter_buttons(self):
         """Update filter button styling to highlight active filter"""
@@ -270,6 +269,8 @@ class TaskPanel:
         # Selection checkbox (when in selection mode)
         if self.selection_mode:
             sel_var = tk.BooleanVar(value=idx in self.selected_tasks)
+            # Store reference so _select_all_tasks can update it
+            self.task_widgets[-1]['sel_var'] = sel_var
             def _toggle_select(i=idx, v=sel_var):
                 if v.get():
                     self.selected_tasks.add(i)
