@@ -166,7 +166,7 @@ class TestApplicationDataFlow(unittest.TestCase):
         with open(self.temp_file.name, 'w') as f:
             json.dump(old_data, f)
 
-        # Load and verify
+        # Load and verify raw data
         with open(self.temp_file.name, 'r') as f:
             loaded_data = json.load(f)
 
@@ -174,6 +174,14 @@ class TestApplicationDataFlow(unittest.TestCase):
         self.assertEqual(loaded_data['categories'][0]['name'], 'Work')
         self.assertEqual(len(loaded_data['categories'][0]['tasks']), 1)
         self.assertEqual(loaded_data['current_category'], 1)
+
+        # Verify model objects apply correct defaults for missing fields
+        from src.models.checklist import Checklist
+        checklist = Checklist.from_dict(loaded_data)
+        task = checklist.get_category(1).get_task(0)
+        self.assertEqual(task.priority, 'medium')
+        self.assertIsNone(task.due_date)
+        self.assertIsNone(task.reminder)
 
     def test_category_operations(self):
         """Test category CRUD operations"""

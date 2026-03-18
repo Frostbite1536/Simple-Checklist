@@ -134,6 +134,14 @@ class Sidebar:
             categories: List of Category model objects
             current_category_id: ID of the currently selected category
         """
+        # Reset drag state to avoid stale widget references
+        self.drag_data = {
+            'source': None,
+            'index': None,
+            'start_y': None,
+            'dragging': False
+        }
+
         # Clear existing widgets and button tracking
         for widget in self.category_frame.winfo_children():
             widget.destroy()
@@ -206,7 +214,11 @@ class Sidebar:
             # If moved more than 5 pixels, consider it a drag
             if abs(event.y_root - self.drag_data['start_y']) > 5:
                 self.drag_data['dragging'] = True
-                self.drag_data['source'].config(cursor='fleur')
+                try:
+                    if self.drag_data['source'].winfo_exists():
+                        self.drag_data['source'].config(cursor='fleur')
+                except tk.TclError:
+                    pass
 
     def _get_drop_target_index(self, y_root):
         """
@@ -259,7 +271,11 @@ class Sidebar:
 
         # Reset drag data
         if self.drag_data['source']:
-            self.drag_data['source'].config(cursor='hand2')
+            try:
+                if self.drag_data['source'].winfo_exists():
+                    self.drag_data['source'].config(cursor='hand2')
+            except tk.TclError:
+                pass
         self.drag_data = {
             'source': None,
             'index': None,

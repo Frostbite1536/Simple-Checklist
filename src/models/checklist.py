@@ -167,10 +167,12 @@ class Checklist:
             New Checklist instance
         """
         categories = []
-        for cat_data in data.get('categories', []):
+        for raw_cat in data.get('categories', []):
             # Validate category has required fields
-            if 'id' not in cat_data:
+            if 'id' not in raw_cat:
                 continue
+            # Work on a copy to avoid mutating the input
+            cat_data = dict(raw_cat)
             if 'name' not in cat_data:
                 cat_data['name'] = f"Category {cat_data['id']}"
             if 'tasks' not in cat_data:
@@ -178,18 +180,22 @@ class Checklist:
 
             # Validate and clean tasks
             valid_tasks = []
-            for task_data in cat_data.get('tasks', []):
-                if 'text' not in task_data or not task_data['text']:
+            for raw_task in cat_data.get('tasks', []):
+                if 'text' not in raw_task or not raw_task['text']:
                     continue
+                task_data = dict(raw_task)
                 if 'completed' not in task_data:
                     task_data['completed'] = False
                 # Validate subtasks
                 if 'subtasks' in task_data:
                     valid_subtasks = []
                     for st_data in task_data['subtasks']:
+                        if not isinstance(st_data, dict):
+                            continue
                         if 'text' not in st_data or not st_data['text']:
                             continue
                         if 'completed' not in st_data:
+                            st_data = dict(st_data)
                             st_data['completed'] = False
                         valid_subtasks.append(st_data)
                     task_data['subtasks'] = valid_subtasks

@@ -247,8 +247,9 @@ class MarkdownExporter:
         if len(lines) <= max_lines:
             return full_export
 
-        preview_lines = lines[:max_lines]
-        preview_lines.append(f"\n... ({len(lines) - max_lines} more lines)")
+        preview_lines = lines[:max_lines - 1]
+        remaining = len(lines) - len(preview_lines)
+        preview_lines.append(f"... ({remaining} more lines)")
         return '\n'.join(preview_lines)
 
     def get_statistics(self) -> Dict[str, Any]:

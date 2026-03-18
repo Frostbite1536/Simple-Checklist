@@ -422,7 +422,7 @@ class ChecklistApp:
     def toggle_task(self, idx):
         """Toggle task completion status"""
         category = self.checklist.get_current_category()
-        if category and idx < len(category.tasks):
+        if category and 0 <= idx < len(category.tasks):
             self.record_state("Toggle task")
             category.tasks[idx].toggle_completion()
             self.save_data()
@@ -431,7 +431,7 @@ class ChecklistApp:
     def delete_task(self, idx):
         """Delete a task"""
         category = self.checklist.get_current_category()
-        if category and idx < len(category.tasks):
+        if category and 0 <= idx < len(category.tasks):
             if messagebox.askyesno("Delete Task", "Delete this task?"):
                 self.record_state("Delete task")
                 category.remove_task(idx)
@@ -443,7 +443,7 @@ class ChecklistApp:
     def edit_task_dialog(self, task_idx):
         """Show dialog to edit a task's text, priority, and due date"""
         category = self.checklist.get_current_category()
-        if not category or task_idx >= len(category.tasks):
+        if not category or not (0 <= task_idx < len(category.tasks)):
             return
 
         task = category.tasks[task_idx]
@@ -490,7 +490,7 @@ class ChecklistApp:
         """Show dialog to add a sub-task"""
         def on_add(text):
             category = self.checklist.get_current_category()
-            if category and task_idx < len(category.tasks):
+            if category and 0 <= task_idx < len(category.tasks):
                 self.record_state("Add subtask")
                 category.tasks[task_idx].add_subtask(Subtask(text))
                 self.save_data()
@@ -501,9 +501,9 @@ class ChecklistApp:
     def toggle_subtask(self, task_idx, subtask_idx):
         """Toggle sub-task completion status"""
         category = self.checklist.get_current_category()
-        if category and task_idx < len(category.tasks):
+        if category and 0 <= task_idx < len(category.tasks):
             task = category.tasks[task_idx]
-            if subtask_idx < len(task.subtasks):
+            if 0 <= subtask_idx < len(task.subtasks):
                 self.record_state("Toggle subtask")
                 task.subtasks[subtask_idx].toggle_completion()
                 self.save_data()
@@ -512,9 +512,9 @@ class ChecklistApp:
     def delete_subtask(self, task_idx, subtask_idx):
         """Delete a sub-task"""
         category = self.checklist.get_current_category()
-        if category and task_idx < len(category.tasks):
+        if category and 0 <= task_idx < len(category.tasks):
             task = category.tasks[task_idx]
-            if subtask_idx < len(task.subtasks):
+            if 0 <= subtask_idx < len(task.subtasks):
                 if messagebox.askyesno("Delete Sub-task", "Delete this sub-task?"):
                     self.record_state("Delete subtask")
                     task.remove_subtask(subtask_idx)
@@ -524,11 +524,11 @@ class ChecklistApp:
     def edit_subtask_dialog(self, task_idx, subtask_idx):
         """Show dialog to edit a subtask's text"""
         category = self.checklist.get_current_category()
-        if not category or task_idx >= len(category.tasks):
+        if not category or not (0 <= task_idx < len(category.tasks)):
             return
 
         task = category.tasks[task_idx]
-        if subtask_idx >= len(task.subtasks):
+        if not (0 <= subtask_idx < len(task.subtasks)):
             return
 
         current_text = task.subtasks[subtask_idx].text
@@ -544,7 +544,7 @@ class ChecklistApp:
     def set_reminder_dialog(self, task_idx):
         """Show dialog to set a reminder for a task"""
         category = self.checklist.get_current_category()
-        if not category or task_idx >= len(category.tasks):
+        if not category or not (0 <= task_idx < len(category.tasks)):
             return
 
         task = category.tasks[task_idx]

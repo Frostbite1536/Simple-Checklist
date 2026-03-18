@@ -164,6 +164,105 @@ class TestTask(unittest.TestCase):
         self.assertEqual(len(task.notes), 1)
         self.assertEqual(task.get_subtask_count(), 1)
 
+    def test_default_priority(self):
+        """Test default priority value"""
+        task = Task("Test")
+        self.assertEqual(task.priority, 'medium')
+
+    def test_custom_priority(self):
+        """Test setting custom priority"""
+        task = Task("Test", priority='high')
+        self.assertEqual(task.priority, 'high')
+
+    def test_due_date(self):
+        """Test due_date field"""
+        task = Task("Test", due_date='2025-12-31')
+        self.assertEqual(task.due_date, '2025-12-31')
+
+    def test_due_date_default_none(self):
+        """Test due_date defaults to None"""
+        task = Task("Test")
+        self.assertIsNone(task.due_date)
+
+    def test_reminder(self):
+        """Test reminder field"""
+        task = Task("Test", reminder='2025-12-01T10:00:00')
+        self.assertEqual(task.reminder, '2025-12-01T10:00:00')
+
+    def test_reminder_default_none(self):
+        """Test reminder defaults to None"""
+        task = Task("Test")
+        self.assertIsNone(task.reminder)
+
+    def test_to_dict_with_all_fields(self):
+        """Test to_dict includes priority/due_date/reminder when set"""
+        task = Task("Test", priority='high', due_date='2025-12-31',
+                    reminder='2025-12-01T10:00:00')
+        data = task.to_dict()
+        self.assertEqual(data['priority'], 'high')
+        self.assertEqual(data['due_date'], '2025-12-31')
+        self.assertEqual(data['reminder'], '2025-12-01T10:00:00')
+
+    def test_to_dict_omits_defaults(self):
+        """Test to_dict omits fields with default values"""
+        task = Task("Test")
+        data = task.to_dict()
+        self.assertNotIn('priority', data)
+        self.assertNotIn('due_date', data)
+        self.assertNotIn('reminder', data)
+        self.assertNotIn('notes', data)
+        self.assertNotIn('subtasks', data)
+
+    def test_from_dict_with_priority_due_reminder(self):
+        """Test from_dict handles priority, due_date, and reminder"""
+        data = {
+            'text': 'Test',
+            'completed': False,
+            'created': '2025-01-01T10:00:00',
+            'priority': 'low',
+            'due_date': '2025-06-15',
+            'reminder': '2025-06-14T09:00:00'
+        }
+        task = Task.from_dict(data)
+        self.assertEqual(task.priority, 'low')
+        self.assertEqual(task.due_date, '2025-06-15')
+        self.assertEqual(task.reminder, '2025-06-14T09:00:00')
+
+    def test_from_dict_defaults_missing_fields(self):
+        """Test from_dict applies defaults for missing optional fields"""
+        data = {'text': 'Minimal', 'completed': False}
+        task = Task.from_dict(data)
+        self.assertEqual(task.priority, 'medium')
+        self.assertIsNone(task.due_date)
+        self.assertIsNone(task.reminder)
+        self.assertEqual(task.notes, [])
+        self.assertEqual(task.subtasks, [])
+
+    def test_from_dict_skips_malformed_subtasks(self):
+        """Test from_dict skips malformed subtask entries"""
+        data = {
+            'text': 'Test',
+            'completed': False,
+            'subtasks': [
+                {'text': 'Valid', 'completed': False},
+                {'completed': True},           # missing text
+                None,                          # not a dict
+                {'text': '', 'completed': False},  # empty text
+                {'text': 'Also valid', 'completed': True}
+            ]
+        }
+        task = Task.from_dict(data)
+        self.assertEqual(task.get_subtask_count(), 2)
+        self.assertEqual(task.subtasks[0].text, 'Valid')
+        self.assertEqual(task.subtasks[1].text, 'Also valid')
+
+    def test_from_dict_notes_not_aliased(self):
+        """Test from_dict creates a copy of notes list (no aliasing)"""
+        data = {'text': 'Test', 'notes': ['note1', 'note2']}
+        task = Task.from_dict(data)
+        task.notes.append('note3')
+        self.assertEqual(len(data['notes']), 2)  # Original unchanged
+
 
 class TestCategory(unittest.TestCase):
     """Tests for Category class"""
@@ -440,6 +539,102 @@ class TestChecklist(unittest.TestCase):
 
         self.assertEqual(cl.get_category_count(), 1)
         self.assertEqual(cl.current_category_id, 1)
+
+    def test_from_dict_does_not_mutate_input(self):
+        """Test from_dict does not modify the input dictionary"""
+        import copy
+        data = {
+            'categories': [
+                {
+                    'id': 1,
+                    'name': 'Work',
+                    'tasks': [
+                        {'text': 'Task 1', 'completed': False}
+                    ]
+                }
+            ],
+            'current_category': 1
+        }
+        original = copy.deepcopy(data)
+        Checklist.from_dict(data)
+        self.assertEqual(data, original)
+
+    def test_from_dict_skips_invalid_categories(self):
+        """Test from_dict skips categories without id"""
+        data = {
+            'categories': [
+                {'name': 'No ID', 'tasks': []},
+                {'id': 1, 'name': 'Valid', 'tasks': []}
+            ],
+            'current_category': 1
+        }
+        cl = Checklist.from_dict(data)
+        self.assertEqual(cl.get_category_count(), 1)
+        self.assertEqual(cl.categories[0].name, 'Valid')
+
+    def test_from_dict_skips_empty_text_tasks(self):
+        """Test from_dict skips tasks with empty or missing text"""
+        data = {
+            'categories': [{
+                'id': 1, 'name': 'Work',
+                'tasks': [
+                    {'text': 'Valid task', 'completed': False},
+                    {'text': '', 'completed': False},
+                    {'completed': True}
+                ]
+            }]
+        }
+        cl = Checklist.from_dict(data)
+        self.assertEqual(cl.get_category(1).get_task_count(), 1)
+
+    def test_from_dict_fixes_invalid_current_category(self):
+        """Test from_dict corrects invalid current_category_id"""
+        data = {
+            'categories': [{'id': 1, 'name': 'Work', 'tasks': []}],
+            'current_category': 999
+        }
+        cl = Checklist.from_dict(data)
+        self.assertEqual(cl.current_category_id, 1)
+
+    def test_from_dict_defaults_missing_fields(self):
+        """Test from_dict applies defaults for missing optional fields"""
+        data = {
+            'categories': [{
+                'id': 1, 'name': 'Work',
+                'tasks': [{'text': 'Minimal task'}]
+            }]
+        }
+        cl = Checklist.from_dict(data)
+        task = cl.get_category(1).get_task(0)
+        self.assertFalse(task.completed)
+        self.assertEqual(task.priority, 'medium')
+        self.assertIsNone(task.due_date)
+        self.assertIsNone(task.reminder)
+
+    def test_roundtrip_to_dict_from_dict(self):
+        """Test that to_dict/from_dict roundtrip preserves data"""
+        cl = Checklist()
+        cat = Category(1, "Work")
+        task = Task("My task", priority='high', due_date='2025-12-31',
+                    reminder='2025-12-30T09:00:00', notes=['note1'])
+        task.add_subtask(Subtask("Sub 1", completed=True))
+        cat.add_task(task)
+        cl.add_category(cat)
+        cl.set_current_category(1)
+
+        data = cl.to_dict()
+        restored = Checklist.from_dict(data)
+
+        self.assertEqual(restored.get_category_count(), 1)
+        self.assertEqual(restored.current_category_id, 1)
+        restored_task = restored.get_category(1).get_task(0)
+        self.assertEqual(restored_task.text, "My task")
+        self.assertEqual(restored_task.priority, 'high')
+        self.assertEqual(restored_task.due_date, '2025-12-31')
+        self.assertEqual(restored_task.reminder, '2025-12-30T09:00:00')
+        self.assertEqual(restored_task.notes, ['note1'])
+        self.assertEqual(restored_task.get_subtask_count(), 1)
+        self.assertTrue(restored_task.subtasks[0].completed)
 
 
 if __name__ == '__main__':

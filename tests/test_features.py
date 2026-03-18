@@ -690,6 +690,34 @@ class TestUndoManager(unittest.TestCase):
         desc = self.manager.get_redo_description()
         self.assertIsNotNone(desc)
 
+    def test_undo_redo_with_checklist_objects(self):
+        """Test undo/redo roundtrip with actual Checklist model objects"""
+        manager = UndoManager()
+
+        # Create initial checklist and record state
+        checklist = Checklist()
+        cat = Category(1, "Work")
+        cat.add_task(Task("Task 1"))
+        checklist.add_category(cat)
+        checklist.set_current_category(1)
+
+        # Record state before adding a task
+        manager.record_state(checklist.to_dict(), "Add task")
+        cat.add_task(Task("Task 2"))
+
+        # Undo: should restore to 1 task
+        previous = manager.undo(checklist.to_dict())
+        self.assertIsNotNone(previous)
+        restored = Checklist.from_dict(previous)
+        self.assertEqual(restored.get_category(1).get_task_count(), 1)
+        self.assertEqual(restored.current_category_id, 1)
+
+        # Redo: should restore to 2 tasks
+        redo_state = manager.redo(restored.to_dict())
+        self.assertIsNotNone(redo_state)
+        re_restored = Checklist.from_dict(redo_state)
+        self.assertEqual(re_restored.get_category(1).get_task_count(), 2)
+
 
 if __name__ == '__main__':
     unittest.main()

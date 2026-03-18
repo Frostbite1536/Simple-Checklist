@@ -49,7 +49,7 @@ class Subtask:
             New Subtask instance
         """
         return cls(
-            text=data['text'],
+            text=data.get('text', ''),
             completed=data.get('completed', False)
         )
 
@@ -193,7 +193,9 @@ class Task:
         """
         subtasks = []
         if 'subtasks' in data:
-            subtasks = [Subtask.from_dict(st) for st in data['subtasks']]
+            for st in data['subtasks']:
+                if isinstance(st, dict) and st.get('text'):
+                    subtasks.append(Subtask.from_dict(st))
 
         return cls(
             text=data.get('text', ''),  # Default to empty string if missing
