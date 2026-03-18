@@ -41,6 +41,9 @@ class Sidebar:
             'dragging': False
         }
 
+        # Current theme colors (default to None = light theme hardcoded colors)
+        self._theme = None
+
         # Store category button widgets for drop target detection
         self.category_buttons = []
 
@@ -114,9 +117,22 @@ class Sidebar:
 
     def apply_theme(self, theme_colors):
         """Apply theme colors to the sidebar"""
-        self.frame.config(bg=theme_colors.SIDEBAR_BG)
-        self.canvas.config(bg=theme_colors.SIDEBAR_BG)
-        self.category_frame.config(bg=theme_colors.SIDEBAR_BG)
+        self._theme = theme_colors
+        bg = theme_colors.SIDEBAR_BG
+        self.frame.config(bg=bg)
+        self.canvas.config(bg=bg)
+        self.category_frame.config(bg=bg)
+        # Update all child widgets in the frame (title, add button, scroll container)
+        for widget in self.frame.winfo_children():
+            try:
+                if isinstance(widget, tk.Label):
+                    widget.config(bg=bg, fg=theme_colors.SIDEBAR_TEXT)
+                elif isinstance(widget, tk.Button):
+                    widget.config(bg=theme_colors.SIDEBAR_ACTIVE)
+                elif isinstance(widget, tk.Frame):
+                    widget.config(bg=bg)
+            except tk.TclError:
+                pass
 
     def pack(self, **kwargs):
         """Pack the sidebar frame"""
@@ -153,12 +169,17 @@ class Sidebar:
             widget.destroy()
         self.category_buttons = []
 
+        # Theme-aware colors
+        active_bg = self._theme.SIDEBAR_ACTIVE if self._theme else '#3498db'
+        inactive_bg = self._theme.SIDEBAR_BG if self._theme else '#2c3e50'
+        text_fg = self._theme.SIDEBAR_TEXT if self._theme else 'white'
+
         # Create category buttons
         for idx, cat in enumerate(categories):
             is_active = cat.id == current_category_id
 
             frame = tk.Frame(self.category_frame,
-                           bg='#3498db' if is_active else '#2c3e50')
+                           bg=active_bg if is_active else inactive_bg)
             frame.pack(fill=tk.X, pady=3)
 
             # Truncate long category names and add task count
@@ -167,8 +188,8 @@ class Sidebar:
 
             btn = tk.Button(frame,
                           text=btn_text,
-                          bg='#3498db' if is_active else '#2c3e50',
-                          fg='white', relief=tk.FLAT,
+                          bg=active_bg if is_active else inactive_bg,
+                          fg=text_fg, relief=tk.FLAT,
                           anchor='w', padx=10, pady=8,
                           font=('Segoe UI', 10),
                           cursor='hand2')
@@ -185,7 +206,7 @@ class Sidebar:
                     lambda e, c=cat.id: self._on_drag_release(e, c))
 
             # Button container for edit and delete (fixed width to prevent overflow)
-            btn_container = tk.Frame(frame, bg='#3498db' if is_active else '#2c3e50')
+            btn_container = tk.Frame(frame, bg=active_bg if is_active else inactive_bg)
             btn_container.pack(side=tk.RIGHT)
 
             # Edit button (if callback provided)

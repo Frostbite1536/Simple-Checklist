@@ -385,10 +385,12 @@ class ChecklistApp:
             widget.destroy()
 
         if not results:
-            import tkinter as tk
+            theme = self.task_panel._theme
+            bg = theme.CONTENT_BG if theme else 'white'
+            fg = theme.EMPTY_TEXT if theme else '#95a5a6'
             empty = tk.Label(self.task_panel.task_frame,
                            text=f"No tasks matching '{query}'",
-                           bg='white', fg='#95a5a6',
+                           bg=bg, fg=fg,
                            font=('Segoe UI', 12))
             empty.pack(pady=50)
             return
@@ -469,6 +471,17 @@ class ChecklistApp:
         # Clear selection mode when switching categories
         if self.task_panel.selection_mode:
             self.task_panel.toggle_selection_mode()
+
+        # Clear search when switching categories
+        if self.search_bar.is_active():
+            self.search_bar.clear()
+            self.search_results = None
+
+        # Reset filter when switching categories
+        if self.active_filter != 'all':
+            self.active_filter = 'all'
+            self.task_panel.active_filter = 'all'
+            self.task_panel._update_filter_buttons()
 
         self.checklist.current_category_id = cat_id
         self.sidebar.render_categories(self.checklist.categories,
@@ -610,7 +623,8 @@ class ChecklistApp:
             day = min(base_date.day, max_day)
             next_date = base_date.replace(year=year, month=month, day=day)
         else:
-            next_date = base_date
+            # Unknown recurrence value — fall through to normal toggle
+            return
 
         task.due_date = next_date.strftime('%Y-%m-%d')
         # Task stays uncompleted
@@ -975,9 +989,12 @@ class ChecklistApp:
         if not filename:
             return
 
-        if messagebox.askyesno("New Checklist",
-                              "Save current checklist before creating new?"):
+        result = messagebox.askyesnocancel("New Checklist",
+                                           "Save current checklist before creating new?")
+        if result is True:
             self.save_data()
+        elif result is None:
+            return  # Cancel — abort new checklist
 
         self.storage.set_file_path(filename)
         self.checklist = Checklist()
@@ -1088,12 +1105,20 @@ class ChecklistApp:
                 "You have unsaved changes. Save before closing?")
             if result is True:
                 self.save_data()
-                self.root.destroy()
-            elif result is False:
-                self.root.destroy()
-            # result is None (Cancel) — do nothing
-        else:
-            self.root.destroy()
+            elif result is None:
+                return  # Cancel — do nothing
+            # result is True (saved) or False (discard) — proceed to close
+        self._cancel_timers()
+        self.root.destroy()
+
+    def _cancel_timers(self):
+        """Cancel all pending after() timers to prevent TclError on destroy"""
+        if self._reminder_after_id:
+            self.root.after_cancel(self._reminder_after_id)
+            self._reminder_after_id = None
+        if self._autosave_after_id:
+            self.root.after_cancel(self._autosave_after_id)
+            self._autosave_after_id = None
 
     def toggle_theme(self):
         """Toggle between light and dark theme"""

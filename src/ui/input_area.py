@@ -86,7 +86,8 @@ class InputArea:
         """Apply theme colors to the input area"""
         bg = theme_colors.INPUT_AREA_BG
         self.frame.config(bg=bg)
-        self.task_input.config(bg=theme_colors.DEFAULT_INPUT_BG,
+        self.input_bg_color = theme_colors.DEFAULT_INPUT_BG
+        self.task_input.config(bg=self.input_bg_color,
                               fg=theme_colors.CONTENT_TEXT,
                               insertbackground=theme_colors.CONTENT_TEXT)
         # Update hint label

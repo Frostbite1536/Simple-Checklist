@@ -6,10 +6,9 @@ Reusable dialog components for user interactions
 import tkinter as tk
 from tkinter import messagebox
 from datetime import datetime, timedelta
+from ..utils.constants import UI
 
-# Maximum character limit for category names
-# Bug #19 fix: Reduced from 17 to 16 to prevent delete button from being pushed off-screen
-MAX_CATEGORY_NAME_LENGTH = 16
+MAX_CATEGORY_NAME_LENGTH = UI.MAX_CATEGORY_NAME_LENGTH
 
 
 class AddCategoryDialog:

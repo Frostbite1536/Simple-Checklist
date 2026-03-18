@@ -5,7 +5,6 @@ Manages the entire checklist with multiple categories
 
 from typing import List, Dict, Any, Optional
 from .category import Category
-from .task import Task
 
 
 class Checklist:
@@ -43,7 +42,14 @@ class Checklist:
         """
         for i, cat in enumerate(self.categories):
             if cat.id == category_id:
-                return self.categories.pop(i)
+                removed = self.categories.pop(i)
+                # Reset current_category_id if the removed category was active
+                if self.current_category_id == category_id:
+                    if self.categories:
+                        self.current_category_id = self.categories[0].id
+                    else:
+                        self.current_category_id = None
+                return removed
         return None
 
     def get_category(self, category_id: int) -> Optional[Category]:

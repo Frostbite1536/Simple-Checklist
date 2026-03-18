@@ -63,6 +63,12 @@ class TaskPanel:
         self.on_bulk_delete = None
         self.on_toggle_selection = None
 
+        # Current theme colors (default to None = light theme hardcoded colors)
+        self._theme = None
+
+        # Cache overstrike fonts to prevent resource leaks
+        self._overstrike_fonts = {}
+
         # Create task container
         self.container = tk.Frame(parent, bg='white')
 
@@ -185,21 +191,36 @@ class TaskPanel:
 
     def _update_filter_buttons(self):
         """Update filter button styling to highlight active filter"""
+        active_bg = self._theme.BTN_PRIMARY if self._theme else '#3498db'
+        active_fg = self._theme.BTN_TEXT if self._theme else 'white'
+        inactive_bg = self._theme.CONTENT_BG if self._theme else '#ecf0f1'
+        inactive_fg = self._theme.CONTENT_TEXT if self._theme else '#2c3e50'
         for key, btn in self.filter_buttons.items():
             if key == self.active_filter:
-                btn.config(bg='#3498db', fg='white')
+                btn.config(bg=active_bg, fg=active_fg)
             else:
-                btn.config(bg='#ecf0f1', fg='#2c3e50')
+                btn.config(bg=inactive_bg, fg=inactive_fg)
 
     def apply_theme(self, theme_colors):
         """Apply theme colors to the task panel"""
+        self._theme = theme_colors
         bg = theme_colors.CONTENT_BG
         self.container.config(bg=bg)
         self.canvas.config(bg=bg)
         self.task_frame.config(bg=bg)
         self.filter_frame.config(bg=bg)
-        for btn in self.filter_buttons.values():
-            btn.config(highlightbackground=bg)
+        self._update_filter_buttons()
+        # Theme the action bar
+        self.action_bar.config(bg=theme_colors.SIDEBAR_BG)
+        for btn in self.action_bar_buttons.values():
+            btn.config(highlightbackground=theme_colors.SIDEBAR_BG)
+
+    def _get_overstrike_font(self, size):
+        """Get a cached overstrike font to prevent resource leaks"""
+        if size not in self._overstrike_fonts:
+            self._overstrike_fonts[size] = tkfont.Font(
+                family='Segoe UI', size=size, overstrike=True)
+        return self._overstrike_fonts[size]
 
     def _on_canvas_resize(self, event):
         """Update canvas window width when canvas is resized"""
@@ -222,16 +243,20 @@ class TaskPanel:
         }
 
         if not category:
+            bg = self._theme.CONTENT_BG if self._theme else 'white'
+            fg = self._theme.EMPTY_TEXT if self._theme else '#95a5a6'
             empty = tk.Label(self.task_frame, text="No category selected",
-                           bg='white', fg='#95a5a6',
+                           bg=bg, fg=fg,
                            font=('Segoe UI', 14))
             empty.pack(pady=50)
             return
 
         if not category.tasks:
+            bg = self._theme.CONTENT_BG if self._theme else 'white'
+            fg = self._theme.EMPTY_TEXT if self._theme else '#95a5a6'
             empty = tk.Label(self.task_frame,
                            text="No tasks yet\nStart typing below to add your first task!",
-                           bg='white', fg='#95a5a6',
+                           bg=bg, fg=fg,
                            font=('Segoe UI', 12))
             empty.pack(pady=50)
             return
@@ -248,7 +273,8 @@ class TaskPanel:
             idx: Task index
             task: Task model object
         """
-        task_widget = tk.Frame(self.task_frame, bg='#f8f9fa',
+        task_bg = self._theme.TASK_BG if self._theme else '#f8f9fa'
+        task_widget = tk.Frame(self.task_frame, bg=task_bg,
                               relief=tk.FLAT, borderwidth=1)
         task_widget.pack(fill=tk.X, pady=5, padx=10)
 
@@ -277,7 +303,7 @@ class TaskPanel:
                 else:
                     self.selected_tasks.discard(i)
             sel_cb = tk.Checkbutton(task_widget, variable=sel_var,
-                                   bg='#f8f9fa', activebackground='#f8f9fa',
+                                   bg=task_bg, activebackground='#f8f9fa',
                                    selectcolor='white',
                                    command=_toggle_select)
             sel_cb.pack(side=tk.LEFT, padx=(2, 0))
@@ -298,11 +324,11 @@ class TaskPanel:
         border.pack(side=tk.LEFT, fill=tk.Y)
 
         # Main task content
-        content = tk.Frame(task_widget, bg='#f8f9fa')
+        content = tk.Frame(task_widget, bg=task_bg)
         content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=8)
 
         # Checkbox and text row
-        main_row = tk.Frame(content, bg='#f8f9fa')
+        main_row = tk.Frame(content, bg=task_bg)
         main_row.pack(fill=tk.X)
 
         # Feature #3: Priority indicator
@@ -310,19 +336,19 @@ class TaskPanel:
             priority_symbols = {'high': '●', 'low': '○'}
             priority_label = tk.Label(main_row, text=priority_symbols.get(priority, ''),
                                      fg=priority_colors.get(priority, '#3498db'),
-                                     bg='#f8f9fa', font=('Segoe UI', 10))
+                                     bg=task_bg, font=('Segoe UI', 10))
             priority_label.pack(side=tk.LEFT, padx=(0, 2))
 
         # Checkbox with explicit styling for visibility
         var = tk.BooleanVar(value=task.completed)
-        cb = tk.Checkbutton(main_row, variable=var, bg='#f8f9fa',
+        cb = tk.Checkbutton(main_row, variable=var, bg=task_bg,
                            activebackground='#f8f9fa',
                            selectcolor='white',
                            command=lambda i=idx: self.on_toggle_task(i))
         cb.pack(side=tk.LEFT)
 
         # Button frame for task actions - pack FIRST so it gets space
-        btn_frame = tk.Frame(main_row, bg='#f8f9fa')
+        btn_frame = tk.Frame(main_row, bg=task_bg)
         btn_frame.pack(side=tk.RIGHT, padx=(5, 0))
 
         # Reminder button
@@ -371,10 +397,11 @@ class TaskPanel:
         del_btn.pack(side=tk.LEFT, padx=1)
 
         # Text styling
+        completed_fg = self._theme.TASK_COMPLETED_TEXT if self._theme else '#7f8c8d'
         text_style = {'cursor': 'xterm'}
         if task.completed:
-            text_style['fg'] = '#7f8c8d'
-            text_style['font'] = tkfont.Font(family='Segoe UI', size=11, overstrike=True)
+            text_style['fg'] = completed_fg
+            text_style['font'] = self._get_overstrike_font(11)
         else:
             text_style['font'] = ('Segoe UI', 11)
 
@@ -395,7 +422,7 @@ class TaskPanel:
 
         # Use Text widget for selectable/copyable text - pack AFTER buttons
         task_text = tk.Text(main_row, height=line_count,
-                          bg='#f8f9fa', relief=tk.FLAT,
+                          bg=task_bg, relief=tk.FLAT,
                           wrap=tk.WORD, **text_style)
         task_text.insert('1.0', task.text)
         task_text.config(state=tk.DISABLED)
@@ -421,10 +448,10 @@ class TaskPanel:
                     due_color = '#7f8c8d'  # Gray - due later
                     due_text = f"📅 {due_dt.strftime('%b %d')}"
 
-                due_row = tk.Frame(content, bg='#f8f9fa')
+                due_row = tk.Frame(content, bg=task_bg)
                 due_row.pack(fill=tk.X, pady=(2, 0))
                 due_label = tk.Label(due_row, text=due_text, fg=due_color,
-                                    bg='#f8f9fa', font=('Segoe UI', 9))
+                                    bg=task_bg, font=('Segoe UI', 9))
                 due_label.pack(side=tk.LEFT, padx=25)
             except ValueError:
                 pass  # Invalid date format
@@ -433,11 +460,11 @@ class TaskPanel:
         if getattr(task, 'recurrence', None) and not task.completed:
             recur_labels = {'daily': '\U0001f504 Daily', 'weekly': '\U0001f504 Weekly',
                            'monthly': '\U0001f504 Monthly'}
-            recur_row = tk.Frame(content, bg='#f8f9fa')
+            recur_row = tk.Frame(content, bg=task_bg)
             recur_row.pack(fill=tk.X, pady=(2, 0))
             recur_label = tk.Label(recur_row,
                                   text=recur_labels.get(task.recurrence, ''),
-                                  fg='#8e44ad', bg='#f8f9fa',
+                                  fg='#8e44ad', bg=task_bg,
                                   font=('Segoe UI', 9))
             recur_label.pack(side=tk.LEFT, padx=25)
 
@@ -507,15 +534,16 @@ class TaskPanel:
             task_idx: Task index
             subtasks: List of Subtask model objects
         """
-        subtasks_frame = tk.Frame(parent, bg='#f8f9fa')
+        task_bg = self._theme.TASK_BG if self._theme else '#f8f9fa'
+        subtasks_frame = tk.Frame(parent, bg=task_bg)
         subtasks_frame.pack(fill=tk.X, padx=20, pady=5)
 
         for sub_idx, subtask in enumerate(subtasks):
-            sub_row = tk.Frame(subtasks_frame, bg='#f8f9fa')
+            sub_row = tk.Frame(subtasks_frame, bg=task_bg)
             sub_row.pack(fill=tk.X, pady=2)
 
             sub_var = tk.BooleanVar(value=subtask.completed)
-            sub_cb = tk.Checkbutton(sub_row, variable=sub_var, bg='#f8f9fa',
+            sub_cb = tk.Checkbutton(sub_row, variable=sub_var, bg=task_bg,
                                    activebackground='#f8f9fa',
                                    selectcolor='white',
                                    command=lambda i=task_idx, si=sub_idx:
@@ -523,7 +551,7 @@ class TaskPanel:
             sub_cb.pack(side=tk.LEFT)
 
             # Button frame for subtask actions - pack FIRST
-            sub_btn_frame = tk.Frame(sub_row, bg='#f8f9fa')
+            sub_btn_frame = tk.Frame(sub_row, bg=task_bg)
             sub_btn_frame.pack(side=tk.RIGHT)
 
             # Edit subtask button
@@ -545,18 +573,20 @@ class TaskPanel:
                                   self.on_delete_subtask(i, si))
             del_sub_btn.pack(side=tk.LEFT, padx=1)
 
+            completed_fg = self._theme.TASK_COMPLETED_TEXT if self._theme else '#7f8c8d'
+            normal_fg = self._theme.CONTENT_TEXT if self._theme else '#2c3e50'
             sub_text_style = {}
             if subtask.completed:
-                sub_text_style['fg'] = '#7f8c8d'
-                sub_text_style['font'] = tkfont.Font(family='Segoe UI', size=10, overstrike=True)
+                sub_text_style['fg'] = completed_fg
+                sub_text_style['font'] = self._get_overstrike_font(10)
             else:
-                sub_text_style['fg'] = '#2c3e50'
+                sub_text_style['fg'] = normal_fg
                 sub_text_style['font'] = ('Segoe UI', 10)
 
             # Use Label for subtasks with wraplength for long text
             # wraplength=400 allows text to wrap within the panel width
             sub_text = tk.Label(sub_row, text=f"↳ {subtask.text}",
-                               bg='#f8f9fa', anchor='w', justify=tk.LEFT,
+                               bg=task_bg, anchor='w', justify=tk.LEFT,
                                wraplength=400,
                                **sub_text_style)
             sub_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -570,15 +600,16 @@ class TaskPanel:
             task_idx: Task index
             notes: List of note strings
         """
-        notes_frame = tk.Frame(parent, bg='#f8f9fa')
+        task_bg = self._theme.TASK_BG if self._theme else '#f8f9fa'
+        notes_frame = tk.Frame(parent, bg=task_bg)
         notes_frame.pack(fill=tk.X, padx=20, pady=5)
 
         for note_idx, note in enumerate(notes):
-            note_row = tk.Frame(notes_frame, bg='#f8f9fa')
+            note_row = tk.Frame(notes_frame, bg=task_bg)
             note_row.pack(fill=tk.X, pady=1)
 
             # Note action buttons (pack first so they get space)
-            note_btn_frame = tk.Frame(note_row, bg='#f8f9fa')
+            note_btn_frame = tk.Frame(note_row, bg=task_bg)
             note_btn_frame.pack(side=tk.RIGHT)
 
             if self.on_edit_note:
@@ -599,8 +630,9 @@ class TaskPanel:
                                             self.on_delete_note(ti, ni))
                 del_note_btn.pack(side=tk.LEFT, padx=1)
 
+            note_fg = self._theme.HINT_TEXT if self._theme else '#7f8c8d'
             note_label = tk.Label(note_row, text=f"\u2022 {note}",
-                                bg='#f8f9fa', fg='#7f8c8d',
+                                bg=task_bg, fg=note_fg,
                                 font=('Segoe UI', 9),
                                 anchor='w', cursor='xterm',
                                 wraplength=400, justify=tk.LEFT)

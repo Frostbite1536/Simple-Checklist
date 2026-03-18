@@ -8,6 +8,7 @@ import glob
 import json
 import logging
 import os
+import tempfile
 from typing import Optional
 from datetime import datetime
 
@@ -41,13 +42,23 @@ class ChecklistStorage:
         """
         try:
             data = checklist.to_dict()
-            os.makedirs(os.path.dirname(os.path.abspath(self.file_path)), exist_ok=True)
-            with open(self.file_path, 'w', encoding='utf-8') as f:
-                fcntl.flock(f, fcntl.LOCK_EX)
-                try:
+            dir_path = os.path.dirname(os.path.abspath(self.file_path))
+            os.makedirs(dir_path, exist_ok=True)
+            # Atomic write: write to temp file, fsync, then rename
+            fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2)
-                finally:
-                    fcntl.flock(f, fcntl.LOCK_UN)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, self.file_path)
+            except BaseException:
+                # Clean up temp file on any failure
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
             return True
         except Exception as e:
             logger.warning("Error saving checklist: %s", e)
