@@ -82,6 +82,10 @@ class InputArea:
         self.input_bg_color = color
         self.task_input.config(bg=color)
 
+    def apply_theme(self, theme_colors):
+        """Apply theme colors to the input area"""
+        self.frame.config(bg=theme_colors.INPUT_AREA_BG)
+
     def focus(self):
         """Set focus to the input field"""
         self.task_input.focus()

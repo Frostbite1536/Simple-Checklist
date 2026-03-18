@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 VALID_PRIORITIES = ('low', 'medium', 'high')
+VALID_RECURRENCES = (None, 'daily', 'weekly', 'monthly')
 
 
 class Subtask:
@@ -77,7 +78,8 @@ class Task:
         created: Optional[str] = None,
         priority: str = 'medium',
         due_date: Optional[str] = None,
-        reminder: Optional[str] = None
+        reminder: Optional[str] = None,
+        recurrence: Optional[str] = None
     ):
         """
         Initialize a task
@@ -91,11 +93,14 @@ class Task:
             priority: Task priority ('low', 'medium', 'high')
             due_date: Due date in YYYY-MM-DD format
             reminder: Reminder datetime in ISO format
+            recurrence: Recurrence pattern (None, 'daily', 'weekly', 'monthly')
         """
         if not text or not text.strip():
             raise ValueError("Task text cannot be empty or whitespace-only")
         if priority not in VALID_PRIORITIES:
             raise ValueError(f"Priority must be one of {VALID_PRIORITIES}, got '{priority}'")
+        if recurrence not in VALID_RECURRENCES:
+            raise ValueError(f"Recurrence must be one of {VALID_RECURRENCES}, got '{recurrence}'")
         self.text = text.strip()
         self.completed = completed
         self.notes = notes or []
@@ -104,6 +109,7 @@ class Task:
         self.priority = priority
         self.due_date = due_date
         self.reminder = reminder
+        self.recurrence = recurrence
 
     def toggle_completion(self) -> None:
         """Toggle the completion status of this task"""
@@ -189,6 +195,9 @@ class Task:
         if self.reminder:
             result['reminder'] = self.reminder
 
+        if self.recurrence:
+            result['recurrence'] = self.recurrence
+
         return result
 
     @classmethod
@@ -211,6 +220,9 @@ class Task:
         raw_priority = data.get('priority', 'medium')
         priority = raw_priority if raw_priority in VALID_PRIORITIES else 'medium'
 
+        raw_recurrence = data.get('recurrence')
+        recurrence = raw_recurrence if raw_recurrence in VALID_RECURRENCES else None
+
         return cls(
             text=data.get('text', 'Untitled'),
             completed=data.get('completed', False),
@@ -219,7 +231,8 @@ class Task:
             created=data.get('created'),
             priority=priority,
             due_date=data.get('due_date'),
-            reminder=data.get('reminder')
+            reminder=data.get('reminder'),
+            recurrence=recurrence
         )
 
     def __repr__(self) -> str:

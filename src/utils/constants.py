@@ -38,6 +38,42 @@ class Colors:
     DEFAULT_INPUT_BG = 'white'
 
 
+class DarkColors:
+    """Dark theme color scheme"""
+    SIDEBAR_BG = '#1a1a2e'
+    SIDEBAR_ACTIVE = '#16213e'
+    SIDEBAR_TEXT = '#e0e0e0'
+
+    CONTENT_BG = '#0f3460'
+    CONTENT_TEXT = '#e0e0e0'
+
+    TASK_BG = '#16213e'
+    TASK_BORDER_ACTIVE = '#e94560'
+    TASK_BORDER_COMPLETED = '#555555'
+    TASK_COMPLETED_TEXT = '#888888'
+
+    BTN_PRIMARY = '#e94560'
+    BTN_SUCCESS = '#0a8754'
+    BTN_DANGER = '#c0392b'
+    BTN_WARNING = '#d35400'
+    BTN_TEXT = 'white'
+
+    SEPARATOR = '#333333'
+    HINT_TEXT = '#999999'
+    EMPTY_TEXT = '#777777'
+    INPUT_AREA_BG = '#1a1a2e'
+    DEFAULT_INPUT_BG = '#16213e'
+
+
+class ThemeManager:
+    """Returns the correct color set for a theme"""
+    @staticmethod
+    def get_colors(theme='light'):
+        if theme == 'dark':
+            return DarkColors
+        return Colors
+
+
 class UI:
     """UI dimensions and fonts"""
     # Window
@@ -89,6 +125,7 @@ class Defaults:
     # Settings
     INPUT_BG_COLOR = Colors.DEFAULT_INPUT_BG
     MAX_RECENT_FILES = 10
+    MAX_BACKUPS = 5
 
     # Export
     EXPORT_DATE_FORMAT = '%Y-%m-%d'
@@ -171,3 +208,6 @@ class FileTypes:
     """File type filters for dialogs"""
     JSON = [("JSON files", "*.json"), ("All files", "*.*")]
     MARKDOWN = [("Markdown files", "*.md"), ("All files", "*.*")]
+    CSV = [("CSV files", "*.csv"), ("All files", "*.*")]
+    IMPORT_ALL = [("Supported files", "*.md *.csv"), ("Markdown files", "*.md"),
+                  ("CSV files", "*.csv"), ("All files", "*.*")]

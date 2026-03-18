@@ -36,7 +36,10 @@ class SettingsManager:
         """
         return {
             'input_bg_color': Defaults.INPUT_BG_COLOR,
-            'recent_files': []
+            'recent_files': [],
+            'theme': 'light',
+            'autosave_enabled': True,
+            'autosave_interval_seconds': 30
         }
 
     def load_settings(self) -> bool:

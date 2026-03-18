@@ -15,7 +15,9 @@ class TaskPanel:
 
     def __init__(self, parent, on_toggle_task, on_delete_task,
                  on_add_subtask, on_toggle_subtask, on_delete_subtask,
-                 on_edit_task=None, on_edit_subtask=None, on_set_reminder=None):
+                 on_edit_task=None, on_edit_subtask=None, on_set_reminder=None,
+                 on_add_note=None, on_edit_note=None, on_delete_note=None,
+                 on_reorder_task=None):
         """
         Initialize the task panel
 
@@ -38,9 +40,62 @@ class TaskPanel:
         self.on_edit_task = on_edit_task
         self.on_edit_subtask = on_edit_subtask
         self.on_set_reminder = on_set_reminder
+        self.on_add_note = on_add_note
+        self.on_edit_note = on_edit_note
+        self.on_delete_note = on_delete_note
+        self.on_reorder_task = on_reorder_task
+
+        # Drag-and-drop state for task reordering
+        self.task_widgets = []
+        self.drag_data = {
+            'source': None, 'index': None,
+            'start_y': None, 'dragging': False
+        }
+
+        # Filter state
+        self.active_filter = 'all'
+        self.on_filter_change = None
+
+        # Selection mode state
+        self.selection_mode = False
+        self.selected_tasks = set()
+        self.on_bulk_complete = None
+        self.on_bulk_delete = None
+        self.on_toggle_selection = None
 
         # Create task container
         self.container = tk.Frame(parent, bg='white')
+
+        # Filter bar
+        self.filter_frame = tk.Frame(self.container, bg='white')
+        self.filter_frame.pack(fill=tk.X, padx=20, pady=(5, 0))
+        self.filter_buttons = {}
+        for label, key in [('All', 'all'), ('High', 'high'), ('Overdue', 'overdue'),
+                           ('Pending', 'pending'), ('Done', 'done')]:
+            btn = tk.Button(self.filter_frame, text=label,
+                           relief=tk.FLAT, padx=8, pady=2,
+                           font=('Segoe UI', 9),
+                           command=lambda k=key: self._set_filter(k))
+            btn.pack(side=tk.LEFT, padx=2)
+            self.filter_buttons[key] = btn
+        self._update_filter_buttons()
+
+        # Selection action bar (hidden by default)
+        self.action_bar = tk.Frame(self.container, bg='#2c3e50')
+        self.action_bar_buttons = {}
+        for label, key, color in [
+            ('\u2713 Complete', 'complete', '#27ae60'),
+            ('\u00d7 Delete', 'delete', '#e74c3c'),
+            ('Select All', 'select_all', '#3498db'),
+            ('Cancel', 'cancel', '#95a5a6')
+        ]:
+            btn = tk.Button(self.action_bar, text=label,
+                           bg=color, fg='white',
+                           relief=tk.FLAT, padx=8, pady=3,
+                           font=('Segoe UI', 9))
+            btn.pack(side=tk.LEFT, padx=3, pady=3)
+            self.action_bar_buttons[key] = btn
+        # action_bar is NOT packed yet — shown only in selection mode
 
         # Canvas for scrolling
         self.canvas = tk.Canvas(self.container, bg='white', highlightthickness=0)
@@ -84,6 +139,69 @@ class TaskPanel:
         """Grid the task panel container"""
         self.container.grid(**kwargs)
 
+    def set_filter_callback(self, callback):
+        """Set the filter change callback"""
+        self.on_filter_change = callback
+
+    def _set_filter(self, filter_key):
+        """Handle filter button click"""
+        self.active_filter = filter_key
+        self._update_filter_buttons()
+        if self.on_filter_change:
+            self.on_filter_change(filter_key)
+
+    def set_bulk_callbacks(self, on_bulk_complete, on_bulk_delete, on_toggle_selection):
+        """Set bulk operation callbacks"""
+        self.on_bulk_complete = on_bulk_complete
+        self.on_bulk_delete = on_bulk_delete
+        self.on_toggle_selection = on_toggle_selection
+
+        self.action_bar_buttons['complete'].config(
+            command=lambda: self.on_bulk_complete(list(self.selected_tasks)))
+        self.action_bar_buttons['delete'].config(
+            command=lambda: self.on_bulk_delete(list(self.selected_tasks)))
+        self.action_bar_buttons['select_all'].config(
+            command=self._select_all_tasks)
+        self.action_bar_buttons['cancel'].config(
+            command=lambda: self.on_toggle_selection())
+
+    def toggle_selection_mode(self):
+        """Toggle selection mode on/off"""
+        self.selection_mode = not self.selection_mode
+        self.selected_tasks.clear()
+        if self.selection_mode:
+            self.action_bar.pack(fill=tk.X, padx=20, pady=(2, 0),
+                               before=self.canvas)
+        else:
+            self.action_bar.pack_forget()
+
+    def _select_all_tasks(self):
+        """Select all visible tasks"""
+        for item in self.task_widgets:
+            self.selected_tasks.add(item['index'])
+        # Re-render to update checkboxes
+        if self.on_toggle_selection:
+            # Just re-render, don't toggle mode
+            pass
+
+    def _update_filter_buttons(self):
+        """Update filter button styling to highlight active filter"""
+        for key, btn in self.filter_buttons.items():
+            if key == self.active_filter:
+                btn.config(bg='#3498db', fg='white')
+            else:
+                btn.config(bg='#ecf0f1', fg='#2c3e50')
+
+    def apply_theme(self, theme_colors):
+        """Apply theme colors to the task panel"""
+        bg = theme_colors.CONTENT_BG
+        self.container.config(bg=bg)
+        self.canvas.config(bg=bg)
+        self.task_frame.config(bg=bg)
+        self.filter_frame.config(bg=bg)
+        for btn in self.filter_buttons.values():
+            btn.config(highlightbackground=bg)
+
     def _on_canvas_resize(self, event):
         """Update canvas window width when canvas is resized"""
         self.canvas.itemconfig(self.canvas_window, width=event.width)
@@ -98,6 +216,11 @@ class TaskPanel:
         # Clear existing widgets
         for widget in self.task_frame.winfo_children():
             widget.destroy()
+        self.task_widgets = []
+        self.drag_data = {
+            'source': None, 'index': None,
+            'start_y': None, 'dragging': False
+        }
 
         if not category:
             empty = tk.Label(self.task_frame, text="No category selected",
@@ -129,6 +252,34 @@ class TaskPanel:
         task_widget = tk.Frame(self.task_frame, bg='#f8f9fa',
                               relief=tk.FLAT, borderwidth=1)
         task_widget.pack(fill=tk.X, pady=5, padx=10)
+
+        # Store widget reference for drag-and-drop target detection
+        self.task_widgets.append({'frame': task_widget, 'index': idx})
+
+        # Drag handle for reordering
+        if self.on_reorder_task:
+            drag_handle = tk.Label(task_widget, text='\u2261', bg='#dcdde1',
+                                  fg='#7f8c8d', font=('Segoe UI', 12),
+                                  width=2, cursor='fleur')
+            drag_handle.pack(side=tk.LEFT, fill=tk.Y)
+            drag_handle.bind('<Button-1>',
+                            lambda e, i=idx: self._on_task_drag_start(e, i))
+            drag_handle.bind('<B1-Motion>', self._on_task_drag_motion)
+            drag_handle.bind('<ButtonRelease-1>', self._on_task_drag_release)
+
+        # Selection checkbox (when in selection mode)
+        if self.selection_mode:
+            sel_var = tk.BooleanVar(value=idx in self.selected_tasks)
+            def _toggle_select(i=idx, v=sel_var):
+                if v.get():
+                    self.selected_tasks.add(i)
+                else:
+                    self.selected_tasks.discard(i)
+            sel_cb = tk.Checkbutton(task_widget, variable=sel_var,
+                                   bg='#f8f9fa', activebackground='#f8f9fa',
+                                   selectcolor='white',
+                                   command=_toggle_select)
+            sel_cb.pack(side=tk.LEFT, padx=(2, 0))
 
         # Feature #3: Priority-based left border color
         priority = task.priority
@@ -191,6 +342,15 @@ class TaskPanel:
                                font=('Segoe UI', 10, 'bold'),
                                command=lambda i=idx: self.on_add_subtask(i))
         add_sub_btn.pack(side=tk.LEFT, padx=1)
+
+        # Add note button
+        if self.on_add_note:
+            note_btn = tk.Button(btn_frame, text="\U0001f4dd",
+                                bg='#16a085', fg='white',
+                                relief=tk.FLAT, width=3,
+                                font=('Segoe UI', 10),
+                                command=lambda i=idx: self.on_add_note(i))
+            note_btn.pack(side=tk.LEFT, padx=1)
 
         # Edit button
         if self.on_edit_task:
@@ -268,13 +428,74 @@ class TaskPanel:
             except ValueError:
                 pass  # Invalid date format
 
+        # Recurrence indicator
+        if getattr(task, 'recurrence', None) and not task.completed:
+            recur_labels = {'daily': '\U0001f504 Daily', 'weekly': '\U0001f504 Weekly',
+                           'monthly': '\U0001f504 Monthly'}
+            recur_row = tk.Frame(content, bg='#f8f9fa')
+            recur_row.pack(fill=tk.X, pady=(2, 0))
+            recur_label = tk.Label(recur_row,
+                                  text=recur_labels.get(task.recurrence, ''),
+                                  fg='#8e44ad', bg='#f8f9fa',
+                                  font=('Segoe UI', 9))
+            recur_label.pack(side=tk.LEFT, padx=25)
+
         # Render subtasks
         if task.subtasks:
             self._render_subtasks(content, idx, task.subtasks)
 
         # Render notes
         if task.notes:
-            self._render_notes(content, task.notes)
+            self._render_notes(content, idx, task.notes)
+
+    def _on_task_drag_start(self, event, index):
+        """Start dragging a task"""
+        self.drag_data['source'] = event.widget
+        self.drag_data['index'] = index
+        self.drag_data['start_y'] = event.y_root
+        self.drag_data['dragging'] = False
+
+    def _on_task_drag_motion(self, event):
+        """Handle task drag motion"""
+        if self.drag_data['source'] and self.drag_data['start_y'] is not None:
+            if abs(event.y_root - self.drag_data['start_y']) > 5:
+                self.drag_data['dragging'] = True
+
+    def _on_task_drag_release(self, event):
+        """Handle task drop to reorder"""
+        source_index = self.drag_data['index']
+
+        if self.drag_data['dragging'] and source_index is not None:
+            target_index = self._get_task_drop_target(event.y_root)
+            if target_index is not None and source_index != target_index:
+                self.on_reorder_task(source_index, target_index)
+
+        self.drag_data = {
+            'source': None, 'index': None,
+            'start_y': None, 'dragging': False
+        }
+
+    def _get_task_drop_target(self, y_root):
+        """Determine which task index the mouse is over"""
+        for item in self.task_widgets:
+            frame = item['frame']
+            try:
+                frame_y = frame.winfo_rooty()
+                frame_height = frame.winfo_height()
+                if frame_y <= y_root < frame_y + frame_height:
+                    return item['index']
+            except tk.TclError:
+                continue
+
+        # If below all tasks, return last index
+        if self.task_widgets:
+            last = self.task_widgets[-1]['frame']
+            try:
+                if y_root >= last.winfo_rooty():
+                    return self.task_widgets[-1]['index']
+            except tk.TclError:
+                pass
+        return None
 
     def _render_subtasks(self, parent, task_idx, subtasks):
         """
@@ -339,21 +560,47 @@ class TaskPanel:
                                **sub_text_style)
             sub_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-    def _render_notes(self, parent, notes):
+    def _render_notes(self, parent, task_idx, notes):
         """
         Render notes for a task
 
         Args:
             parent: Parent widget
+            task_idx: Task index
             notes: List of note strings
         """
         notes_frame = tk.Frame(parent, bg='#f8f9fa')
         notes_frame.pack(fill=tk.X, padx=20, pady=5)
 
-        for note in notes:
-            note_label = tk.Label(notes_frame, text=f"• {note}",
+        for note_idx, note in enumerate(notes):
+            note_row = tk.Frame(notes_frame, bg='#f8f9fa')
+            note_row.pack(fill=tk.X, pady=1)
+
+            # Note action buttons (pack first so they get space)
+            note_btn_frame = tk.Frame(note_row, bg='#f8f9fa')
+            note_btn_frame.pack(side=tk.RIGHT)
+
+            if self.on_edit_note:
+                edit_note_btn = tk.Button(note_btn_frame, text="\u270e",
+                                         bg='#9b59b6', fg='white',
+                                         relief=tk.FLAT, width=2,
+                                         font=('Segoe UI', 8),
+                                         command=lambda ti=task_idx, ni=note_idx:
+                                             self.on_edit_note(ti, ni))
+                edit_note_btn.pack(side=tk.LEFT, padx=1)
+
+            if self.on_delete_note:
+                del_note_btn = tk.Button(note_btn_frame, text="\u00d7",
+                                        bg='#e67e22', fg='white',
+                                        relief=tk.FLAT, width=2,
+                                        font=('Segoe UI', 8),
+                                        command=lambda ti=task_idx, ni=note_idx:
+                                            self.on_delete_note(ti, ni))
+                del_note_btn.pack(side=tk.LEFT, padx=1)
+
+            note_label = tk.Label(note_row, text=f"\u2022 {note}",
                                 bg='#f8f9fa', fg='#7f8c8d',
                                 font=('Segoe UI', 9),
                                 anchor='w', cursor='xterm',
                                 wraplength=400, justify=tk.LEFT)
-            note_label.pack(fill=tk.X)
+            note_label.pack(side=tk.LEFT, fill=tk.X, expand=True)

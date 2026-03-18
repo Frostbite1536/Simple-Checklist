@@ -719,5 +719,200 @@ class TestUndoManager(unittest.TestCase):
         self.assertEqual(re_restored.get_category(1).get_task_count(), 2)
 
 
+class TestTaskImporter(unittest.TestCase):
+    """Tests for TaskImporter class"""
+
+    def test_import_markdown_basic(self):
+        """Test importing basic markdown tasks"""
+        from src.features.importer import TaskImporter
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md',
+                                        delete=False, encoding='utf-8') as f:
+            f.write("- [ ] Buy groceries\n")
+            f.write("- [x] Clean house\n")
+            f.write("- [ ] Walk the dog\n")
+            f.name
+            path = f.name
+
+        try:
+            tasks = TaskImporter.import_from_markdown(path)
+            self.assertEqual(len(tasks), 3)
+            self.assertEqual(tasks[0].text, "Buy groceries")
+            self.assertFalse(tasks[0].completed)
+            self.assertEqual(tasks[1].text, "Clean house")
+            self.assertTrue(tasks[1].completed)
+        finally:
+            os.unlink(path)
+
+    def test_import_markdown_with_subtasks(self):
+        """Test importing markdown with subtasks"""
+        from src.features.importer import TaskImporter
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md',
+                                        delete=False, encoding='utf-8') as f:
+            f.write("- [ ] Main task\n")
+            f.write("  - [ ] Sub one\n")
+            f.write("  - [x] Sub two\n")
+            path = f.name
+
+        try:
+            tasks = TaskImporter.import_from_markdown(path)
+            self.assertEqual(len(tasks), 1)
+            self.assertEqual(len(tasks[0].subtasks), 2)
+            self.assertEqual(tasks[0].subtasks[0].text, "Sub one")
+            self.assertTrue(tasks[0].subtasks[1].completed)
+        finally:
+            os.unlink(path)
+
+    def test_import_markdown_with_notes(self):
+        """Test importing markdown with notes"""
+        from src.features.importer import TaskImporter
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md',
+                                        delete=False, encoding='utf-8') as f:
+            f.write("- [ ] Task with notes\n")
+            f.write("  > This is a note\n")
+            f.write("  \u2022 Another note\n")
+            path = f.name
+
+        try:
+            tasks = TaskImporter.import_from_markdown(path)
+            self.assertEqual(len(tasks), 1)
+            self.assertEqual(len(tasks[0].notes), 2)
+        finally:
+            os.unlink(path)
+
+    def test_import_markdown_empty_file(self):
+        """Test importing empty markdown file"""
+        from src.features.importer import TaskImporter
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md',
+                                        delete=False, encoding='utf-8') as f:
+            f.write("")
+            path = f.name
+
+        try:
+            tasks = TaskImporter.import_from_markdown(path)
+            self.assertEqual(len(tasks), 0)
+        finally:
+            os.unlink(path)
+
+    def test_import_csv_basic(self):
+        """Test importing basic CSV tasks"""
+        from src.features.importer import TaskImporter
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                        delete=False, encoding='utf-8') as f:
+            f.write("text,completed,priority,due_date\n")
+            f.write("Buy milk,false,high,2026-01-15\n")
+            f.write("Clean up,true,low,\n")
+            path = f.name
+
+        try:
+            tasks = TaskImporter.import_from_csv(path)
+            self.assertEqual(len(tasks), 2)
+            self.assertEqual(tasks[0].text, "Buy milk")
+            self.assertFalse(tasks[0].completed)
+            self.assertEqual(tasks[0].priority, "high")
+            self.assertEqual(tasks[0].due_date, "2026-01-15")
+            self.assertTrue(tasks[1].completed)
+        finally:
+            os.unlink(path)
+
+    def test_import_csv_invalid_priority_defaults(self):
+        """Test CSV import clamps invalid priority to medium"""
+        from src.features.importer import TaskImporter
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                        delete=False, encoding='utf-8') as f:
+            f.write("text,completed,priority\n")
+            f.write("Task,false,banana\n")
+            path = f.name
+
+        try:
+            tasks = TaskImporter.import_from_csv(path)
+            self.assertEqual(len(tasks), 1)
+            self.assertEqual(tasks[0].priority, "medium")
+        finally:
+            os.unlink(path)
+
+    def test_import_csv_skips_empty_text(self):
+        """Test CSV import skips rows with empty text"""
+        from src.features.importer import TaskImporter
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                        delete=False, encoding='utf-8') as f:
+            f.write("text,completed\n")
+            f.write(",false\n")
+            f.write("Valid task,false\n")
+            path = f.name
+
+        try:
+            tasks = TaskImporter.import_from_csv(path)
+            self.assertEqual(len(tasks), 1)
+            self.assertEqual(tasks[0].text, "Valid task")
+        finally:
+            os.unlink(path)
+
+    def test_import_file_auto_detect(self):
+        """Test import_file auto-detects format"""
+        from src.features.importer import TaskImporter
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md',
+                                        delete=False, encoding='utf-8') as f:
+            f.write("- [ ] Test task\n")
+            path = f.name
+
+        try:
+            tasks = TaskImporter.import_file(path)
+            self.assertEqual(len(tasks), 1)
+        finally:
+            os.unlink(path)
+
+    def test_import_file_unsupported_format(self):
+        """Test import_file raises on unsupported format"""
+        from src.features.importer import TaskImporter
+
+        with self.assertRaises(ValueError):
+            TaskImporter.import_file("file.xml")
+
+
+class TestBackupRotation(unittest.TestCase):
+    """Tests for ChecklistStorage.rotate_backups"""
+
+    def test_rotate_keeps_newest(self):
+        """Test backup rotation keeps only newest files"""
+        import time
+        from src.persistence.storage import ChecklistStorage
+
+        with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as f:
+            f.write(b'{}')
+            base_path = f.name
+
+        storage = ChecklistStorage(base_path)
+
+        try:
+            # Create 7 backup files with staggered mtimes
+            backup_paths = []
+            for i in range(7):
+                bp = f"{base_path}.backup_{i:02d}"
+                with open(bp, 'w') as bf:
+                    bf.write('{}')
+                # Set mtime to ensure ordering
+                os.utime(bp, (time.time() + i, time.time() + i))
+                backup_paths.append(bp)
+
+            deleted = storage.rotate_backups(max_backups=5)
+            self.assertEqual(deleted, 2)
+
+            remaining = [p for p in backup_paths if os.path.exists(p)]
+            self.assertEqual(len(remaining), 5)
+        finally:
+            os.unlink(base_path)
+            for bp in backup_paths:
+                if os.path.exists(bp):
+                    os.unlink(bp)
+
+
 if __name__ == '__main__':
     unittest.main()

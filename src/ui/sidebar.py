@@ -112,6 +112,12 @@ class Sidebar:
         """Unbind mousewheel when mouse leaves canvas"""
         scrollable_mixin.unbind_mousewheel(self.canvas, self.category_frame)
 
+    def apply_theme(self, theme_colors):
+        """Apply theme colors to the sidebar"""
+        self.frame.config(bg=theme_colors.SIDEBAR_BG)
+        self.canvas.config(bg=theme_colors.SIDEBAR_BG)
+        self.category_frame.config(bg=theme_colors.SIDEBAR_BG)
+
     def pack(self, **kwargs):
         """Pack the sidebar frame"""
         self.frame.pack(**kwargs)

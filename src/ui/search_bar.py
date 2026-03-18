@@ -89,8 +89,18 @@ class SearchBar:
         self.frame.grid(**kwargs)
 
     def focus(self):
-        """Set focus to the search entry"""
+        """Set focus to the search entry with visual feedback"""
         self.search_entry.focus()
+        self.search_entry.select_range(0, tk.END)
+        # Flash border green briefly
+        self.search_entry.config(highlightcolor='#27ae60')
+        self.search_entry.after(
+            500, lambda: self.search_entry.config(highlightcolor='#3498db')
+        )
+
+    def apply_theme(self, theme_colors):
+        """Apply theme colors to the search bar"""
+        self.frame.config(bg=theme_colors.CONTENT_BG)
 
     def is_active(self):
         """Check if there's an active search"""

@@ -81,6 +81,8 @@ class MainWindow:
                              command=self._cb('on_new_checklist'))
         file_menu.add_command(label="Open Checklist...",
                              command=self._cb('on_open_checklist'))
+        file_menu.add_command(label="Import Tasks...",
+                             command=self._cb('on_import_tasks'))
         file_menu.add_command(label="Save As...",
                              command=self._cb('on_save_as'))
         file_menu.add_separator()
@@ -97,11 +99,14 @@ class MainWindow:
         edit_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Edit", menu=edit_menu)
         edit_menu.add_command(label="Undo",
-                             command=self.callbacks.get('on_undo', lambda: None),
+                             command=self._cb('on_undo'),
                              accelerator="Ctrl+Z")
         edit_menu.add_command(label="Redo",
-                             command=self.callbacks.get('on_redo', lambda: None),
+                             command=self._cb('on_redo'),
                              accelerator="Ctrl+Y")
+        edit_menu.add_separator()
+        edit_menu.add_command(label="Select Mode",
+                             command=self._cb('on_toggle_selection'))
 
         # Sort menu (Feature #9)
         sort_menu = tk.Menu(menubar, tearoff=0)
@@ -126,6 +131,19 @@ class MainWindow:
         menubar.add_cascade(label="Settings", menu=settings_menu)
         settings_menu.add_command(label="Change Input Box Color",
                                  command=self._cb('on_change_color'))
+        settings_menu.add_command(label="Toggle Autosave",
+                                 command=self._cb('on_toggle_autosave'))
+        settings_menu.add_command(label="Toggle Dark Mode",
+                                 command=self._cb('on_toggle_theme'))
+
+        # Help menu
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="Keyboard Shortcuts...",
+                             command=self._cb('on_show_help'),
+                             accelerator="F1")
+        help_menu.add_command(label="About",
+                             command=self._cb('on_show_help'))
 
     def _setup_header(self):
         """Setup the header with title and action buttons"""
@@ -219,6 +237,14 @@ class MainWindow:
     def get_input_container(self):
         """Get the input container for adding input area widget"""
         return self.input_container
+
+    def apply_theme(self, theme_colors):
+        """Apply theme colors to the main window"""
+        self.main_container.config(bg=theme_colors.CONTENT_BG)
+        self.right_container.config(bg=theme_colors.CONTENT_BG)
+        self.task_panel_container.config(bg=theme_colors.CONTENT_BG)
+        self.input_container.config(bg=theme_colors.CONTENT_BG)
+        self.sidebar_container.config(bg=theme_colors.SIDEBAR_BG)
 
     def _call_sort(self, sort_by):
         """Call the sort callback if available"""

@@ -4,6 +4,7 @@ Handles JSON file operations for saving and loading checklists
 """
 
 import fcntl
+import glob
 import json
 import logging
 import os
@@ -154,6 +155,33 @@ class ChecklistStorage:
         except Exception as e:
             logger.warning("Error creating backup: %s", e)
             return False
+
+    def rotate_backups(self, max_backups: int = 5) -> int:
+        """
+        Remove old timestamped backups, keeping only the newest max_backups.
+
+        Args:
+            max_backups: Maximum number of backup files to keep
+
+        Returns:
+            Number of backup files deleted
+        """
+        pattern = f"{self.file_path}.backup_*"
+        backup_files = glob.glob(pattern)
+        if len(backup_files) <= max_backups:
+            return 0
+
+        # Sort by modification time, oldest first
+        backup_files.sort(key=lambda f: os.path.getmtime(f))
+        to_delete = backup_files[:len(backup_files) - max_backups]
+        deleted = 0
+        for f in to_delete:
+            try:
+                os.remove(f)
+                deleted += 1
+            except OSError as e:
+                logger.warning("Error deleting old backup %s: %s", f, e)
+        return deleted
 
     def get_file_size(self) -> int:
         """

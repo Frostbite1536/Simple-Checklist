@@ -134,7 +134,8 @@ class EditTaskDialog:
     """Dialog for editing a task's text"""
 
     def __init__(self, parent, current_text, on_save_callback, title="Edit Task",
-                 current_priority=None, current_due_date=None, show_options=False):
+                 current_priority=None, current_due_date=None, show_options=False,
+                 current_recurrence=None):
         """
         Initialize the edit task dialog
 
@@ -153,14 +154,16 @@ class EditTaskDialog:
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(title)
         # Larger dialog if showing options
-        height = 320 if show_options else 200
+        height = 360 if show_options else 200
         self.dialog.geometry(f"500x{height}")
         self.dialog.transient(parent)
         self.dialog.grab_set()
 
-        self._setup_ui(current_text, current_priority, current_due_date)
+        self._setup_ui(current_text, current_priority, current_due_date,
+                       current_recurrence)
 
-    def _setup_ui(self, current_text, current_priority, current_due_date):
+    def _setup_ui(self, current_text, current_priority, current_due_date,
+                  current_recurrence=None):
         """Setup the dialog UI"""
         # Bug #21 fix: Updated hint to reflect correct key bindings
         tk.Label(self.dialog, text="Text (Enter for new line, Shift+Enter to save):").pack(pady=10)
@@ -208,6 +211,19 @@ class EditTaskDialog:
             tk.Label(due_frame, text="(YYYY-MM-DD)", fg='#7f8c8d',
                     font=('Segoe UI', 8)).pack(side=tk.LEFT, padx=5)
 
+            # Recurrence selector
+            recur_frame = tk.Frame(options_frame)
+            recur_frame.pack(side=tk.LEFT, padx=(20, 0))
+
+            tk.Label(recur_frame, text="Repeat:").pack(side=tk.LEFT, padx=(0, 5))
+            self.recurrence_var = tk.StringVar(value=current_recurrence or 'none')
+            recurrence_options = [('None', 'none'), ('Daily', 'daily'),
+                                 ('Weekly', 'weekly'), ('Monthly', 'monthly')]
+            for label, value in recurrence_options:
+                rb = tk.Radiobutton(recur_frame, text=label,
+                                   variable=self.recurrence_var, value=value)
+                rb.pack(side=tk.LEFT, padx=2)
+
         btn_frame = tk.Frame(self.dialog)
         btn_frame.pack(pady=10)
 
@@ -247,7 +263,10 @@ class EditTaskDialog:
                                           "Please enter date in YYYY-MM-DD format!")
                     return
 
-            self.on_save_callback(text, priority, due_date)
+            recurrence = self.recurrence_var.get()
+            if recurrence == 'none':
+                recurrence = None
+            self.on_save_callback(text, priority, due_date, recurrence)
         else:
             self.on_save_callback(text)
         self.dialog.destroy()
@@ -411,6 +430,122 @@ class ReminderDialog:
         """Clear the reminder"""
         self.on_set_callback(None)
         self.dialog.destroy()
+
+
+class AddNoteDialog:
+    """Dialog for adding a note to a task"""
+
+    def __init__(self, parent, on_add_callback):
+        """
+        Initialize the add note dialog
+
+        Args:
+            parent: Parent window
+            on_add_callback: Callback function(text) called when note is added
+        """
+        self.on_add_callback = on_add_callback
+
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Add Note")
+        self.dialog.geometry("400x120")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        self._setup_ui()
+
+    def _setup_ui(self):
+        """Setup the dialog UI"""
+        tk.Label(self.dialog, text="Note text:").pack(pady=10)
+
+        self.entry = tk.Entry(self.dialog, font=('Segoe UI', 11))
+        self.entry.pack(pady=5, padx=20, fill=tk.X)
+        self.entry.focus()
+
+        btn_frame = tk.Frame(self.dialog)
+        btn_frame.pack(pady=10)
+
+        tk.Button(btn_frame, text="Cancel",
+                 command=self.dialog.destroy).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Add",
+                 command=self._on_add).pack(side=tk.LEFT, padx=5)
+
+        self.entry.bind('<Return>', lambda e: self._on_add())
+
+    def _on_add(self):
+        """Handle add button click"""
+        text = self.entry.get().strip()
+        if not text:
+            messagebox.showwarning("Invalid Input",
+                                  "Note text cannot be empty!")
+            return
+
+        self.on_add_callback(text)
+        self.dialog.destroy()
+
+
+class HelpDialog:
+    """Dialog showing keyboard shortcuts and app info"""
+
+    def __init__(self, parent, shortcut_text=""):
+        """
+        Initialize the help dialog
+
+        Args:
+            parent: Parent window
+            shortcut_text: Pre-formatted shortcut help text
+        """
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Simple Checklist \u2014 Help")
+        self.dialog.geometry("500x400")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+
+        self._setup_ui(shortcut_text)
+
+    def _setup_ui(self, shortcut_text):
+        """Setup the dialog UI"""
+        # Title
+        tk.Label(self.dialog, text="Simple Checklist",
+                font=('Segoe UI', 16, 'bold')).pack(pady=(15, 5))
+        tk.Label(self.dialog, text="A lightweight, keyboard-driven task manager",
+                font=('Segoe UI', 10), fg='#7f8c8d').pack(pady=(0, 10))
+
+        # Scrollable text area
+        text_frame = tk.Frame(self.dialog)
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=5)
+
+        scrollbar = tk.Scrollbar(text_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.text = tk.Text(text_frame, wrap=tk.WORD, font=('Segoe UI', 10),
+                           relief=tk.SOLID, borderwidth=1,
+                           yscrollcommand=scrollbar.set)
+        self.text.pack(fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.text.yview)
+
+        # Build help content
+        content = shortcut_text or "No shortcuts registered."
+        content += "\n\n" + "=" * 40 + "\n\n"
+        content += "Features:\n"
+        content += "  - Nested sub-tasks with independent checkboxes\n"
+        content += "  - Drag-and-drop category reordering\n"
+        content += "  - Task priorities, due dates, and reminders\n"
+        content += "  - Real-time search across all tasks\n"
+        content += "  - Multiple sort options (smart, priority, etc.)\n"
+        content += "  - Markdown export\n"
+        content += "  - Undo/Redo support\n"
+        content += "  - Multiple checklist file support\n"
+
+        self.text.insert('1.0', content)
+        self.text.config(state=tk.DISABLED)
+
+        # Close button
+        tk.Button(self.dialog, text="Close",
+                 command=self.dialog.destroy,
+                 padx=20, pady=5).pack(pady=10)
+
+        # Escape to close
+        self.dialog.bind('<Escape>', lambda e: self.dialog.destroy())
 
 
 class EditCategoryDialog:

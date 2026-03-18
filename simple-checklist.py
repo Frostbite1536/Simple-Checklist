@@ -28,6 +28,8 @@ from src.ui import (
     EditTaskDialog,
     EditCategoryDialog,
     ReminderDialog,
+    HelpDialog,
+    AddNoteDialog,
     SearchBar
 )
 
@@ -48,6 +50,7 @@ from src.features.undo_manager import UndoManager
 from src.features.search import TaskSearcher
 from src.features.task_sorting import TaskSorter
 from src.features.export import MarkdownExporter
+from src.features.importer import TaskImporter
 from src.features.shortcuts import ShortcutManager
 
 
@@ -63,6 +66,7 @@ class ChecklistApp:
 
         # Data — model objects throughout
         self.checklist = Checklist()
+        self._dirty = False
 
         # Initialize undo/redo manager (Feature #1)
         self.undo_manager = UndoManager(max_history=20)
@@ -80,6 +84,17 @@ class ChecklistApp:
 
         # Keyboard shortcuts
         self.setup_shortcuts()
+
+        # Window close handler
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Start reminder checker
+        self._reminder_after_id = None
+        self.check_reminders()
+
+        # Start autosave
+        self._autosave_after_id = None
+        self._start_autosave()
 
     def init_default_categories(self):
         """Initialize with default categories"""
@@ -112,7 +127,17 @@ class ChecklistApp:
             'can_undo': self.undo_manager.can_undo,
             'can_redo': self.undo_manager.can_redo,
             # Feature #9: Task sorting callback
-            'on_sort_tasks': self.sort_tasks
+            'on_sort_tasks': self.sort_tasks,
+            # Import
+            'on_import_tasks': self.import_tasks,
+            # Selection mode
+            'on_toggle_selection': self.toggle_selection_mode,
+            # Autosave
+            'on_toggle_autosave': self.toggle_autosave,
+            # Theme
+            'on_toggle_theme': self.toggle_theme,
+            # Help
+            'on_show_help': self.show_help_dialog
         }
         self.main_window = MainWindow(self.root, callbacks)
 
@@ -145,9 +170,17 @@ class ChecklistApp:
             on_delete_subtask=self.delete_subtask,
             on_edit_task=self.edit_task_dialog,
             on_edit_subtask=self.edit_subtask_dialog,
-            on_set_reminder=self.set_reminder_dialog
+            on_set_reminder=self.set_reminder_dialog,
+            on_add_note=self.add_note_dialog,
+            on_edit_note=self.edit_note_dialog,
+            on_delete_note=self.delete_note,
+            on_reorder_task=self.reorder_tasks
         )
         self.task_panel.pack(fill=tk.BOTH, expand=True)
+        self.task_panel.set_filter_callback(self.filter_tasks)
+        self.task_panel.set_bulk_callbacks(
+            self.bulk_complete, self.bulk_delete, self.toggle_selection_mode)
+        self.active_filter = 'all'
 
         # Search state
         self.search_results = None
@@ -192,6 +225,12 @@ class ChecklistApp:
                 f'<Alt-{i}>',
                 lambda e, idx=i-1: self._handle_category_shortcut(idx))
 
+        # Help
+        self.shortcut_mgr.register_shortcut('<F1>', lambda e: self.show_help_dialog(), "Help")
+
+        # Escape to clear search and return focus
+        self.shortcut_mgr.register_shortcut('<Escape>', lambda e: self._escape_handler(), "Clear search / Cancel")
+
         # Arrow navigation for 10+ categories
         self.shortcut_mgr.register_shortcut('<Control-Left>', lambda e: self._navigate_categories(-1), "Previous category")
         self.shortcut_mgr.register_shortcut('<Control-Right>', lambda e: self._navigate_categories(1), "Next category")
@@ -199,9 +238,6 @@ class ChecklistApp:
         self.shortcut_mgr.register_shortcut('<Control-Down>', lambda e: self._navigate_categories(1))
 
         self.shortcut_mgr.bind_all()
-
-        # Start reminder checker
-        self.check_reminders()
 
     def _navigate_categories(self, direction):
         """Navigate to previous/next category (for 10+ categories support)"""
@@ -231,6 +267,12 @@ class ChecklistApp:
         next_idx = (current_idx + direction) % len(categories)
         self.switch_category(categories[next_idx].id)
 
+    def _escape_handler(self):
+        """Clear search and return focus to input area"""
+        if self.search_bar.is_active():
+            self.search_bar.clear()
+            self.input_area.focus()
+
     def _handle_category_shortcut(self, idx):
         """Handle category switching shortcut, ignoring if input has focus"""
         try:
@@ -243,6 +285,7 @@ class ChecklistApp:
     def record_state(self, action_description=""):
         """Record current state before a change (Feature #1: Undo/Redo)"""
         self.undo_manager.record_state(self.checklist.to_dict(), action_description)
+        self._dirty = True
 
     def undo_action(self):
         """Undo the last action (Feature #1)"""
@@ -268,12 +311,47 @@ class ChecklistApp:
             return
 
         category = self.checklist.get_current_category()
-        self.task_panel.render_tasks(category)
+
+        if category and self.active_filter != 'all':
+            self._render_filtered_tasks(category)
+        else:
+            self.task_panel.render_tasks(category)
 
         if category:
-            self.main_window.update_title(category.name)
+            title = category.name
+            if self.active_filter != 'all':
+                filter_labels = {'high': 'High Priority', 'overdue': 'Overdue',
+                                'pending': 'Pending', 'done': 'Completed'}
+                title += f" [{filter_labels.get(self.active_filter, '')}]"
+            self.main_window.update_title(title)
         else:
             self.main_window.update_title("Select a category")
+
+    def _render_filtered_tasks(self, category):
+        """Render only tasks matching the active filter"""
+        from datetime import datetime as dt
+        for widget in self.task_panel.task_frame.winfo_children():
+            widget.destroy()
+        self.task_panel.task_widgets = []
+
+        today = dt.now().date()
+        for idx, task in enumerate(category.tasks):
+            show = False
+            if self.active_filter == 'high':
+                show = task.priority == 'high' and not task.completed
+            elif self.active_filter == 'overdue':
+                if task.due_date and not task.completed:
+                    try:
+                        due = dt.strptime(task.due_date, '%Y-%m-%d').date()
+                        show = due < today
+                    except ValueError:
+                        pass
+            elif self.active_filter == 'pending':
+                show = not task.completed
+            elif self.active_filter == 'done':
+                show = task.completed
+            if show:
+                self.task_panel._render_task(idx, task)
 
     def search_tasks(self, query):
         """Search tasks and display results (Feature #2)"""
@@ -323,6 +401,44 @@ class ChecklistApp:
         else:
             self.main_window.update_title("Select a category")
 
+    def toggle_selection_mode(self):
+        """Toggle task selection mode"""
+        self.task_panel.toggle_selection_mode()
+        self.render_tasks()
+
+    def bulk_complete(self, indices):
+        """Toggle completion for selected tasks"""
+        category = self.checklist.get_current_category()
+        if not category or not indices:
+            return
+        self.record_state("Bulk complete tasks")
+        for idx in indices:
+            if 0 <= idx < len(category.tasks):
+                category.tasks[idx].toggle_completion()
+        self.save_data()
+        self.task_panel.selected_tasks.clear()
+        self.refresh_ui()
+
+    def bulk_delete(self, indices):
+        """Delete selected tasks"""
+        category = self.checklist.get_current_category()
+        if not category or not indices:
+            return
+        if messagebox.askyesno("Delete Tasks",
+                              f"Delete {len(indices)} selected task(s)?"):
+            self.record_state("Bulk delete tasks")
+            for idx in sorted(indices, reverse=True):
+                if 0 <= idx < len(category.tasks):
+                    category.remove_task(idx)
+            self.save_data()
+            self.task_panel.selected_tasks.clear()
+            self.refresh_ui()
+
+    def filter_tasks(self, filter_key):
+        """Filter tasks by criteria"""
+        self.active_filter = filter_key
+        self.render_tasks()
+
     def sort_tasks(self, sort_by):
         """Sort tasks in current category (Feature #9)"""
         category = self.checklist.get_current_category()
@@ -359,6 +475,18 @@ class ChecklistApp:
         self.save_data()
         self.sidebar.render_categories(self.checklist.categories,
                                        self.checklist.current_category_id)
+
+    def reorder_tasks(self, from_idx, to_idx):
+        """Reorder tasks within current category via drag-and-drop"""
+        category = self.checklist.get_current_category()
+        if not category:
+            return
+        if 0 <= from_idx < len(category.tasks) and 0 <= to_idx < len(category.tasks):
+            self.record_state("Reorder tasks")
+            task = category.tasks.pop(from_idx)
+            category.tasks.insert(to_idx, task)
+            self.save_data()
+            self.render_tasks()
 
     def add_category_dialog(self):
         """Show dialog to add new category"""
@@ -423,10 +551,47 @@ class ChecklistApp:
         """Toggle task completion status"""
         category = self.checklist.get_current_category()
         if category and 0 <= idx < len(category.tasks):
+            task = category.tasks[idx]
             self.record_state("Toggle task")
-            category.tasks[idx].toggle_completion()
+
+            # Handle recurring tasks
+            if task.recurrence and not task.completed:
+                # Task is being completed — advance due date and keep uncompleted
+                self._advance_recurring_task(task)
+                self.save_data()
+                self.render_tasks()
+                return
+
+            task.toggle_completion()
             self.save_data()
             self.render_tasks()
+
+    def _advance_recurring_task(self, task):
+        """Advance a recurring task's due date instead of completing it"""
+        from dateutil.relativedelta import relativedelta
+        today = datetime.now().date()
+
+        if task.due_date:
+            try:
+                base_date = datetime.strptime(task.due_date, '%Y-%m-%d').date()
+            except ValueError:
+                base_date = today
+        else:
+            base_date = today
+
+        if task.recurrence == 'daily':
+            next_date = base_date + relativedelta(days=1)
+        elif task.recurrence == 'weekly':
+            next_date = base_date + relativedelta(weeks=1)
+        elif task.recurrence == 'monthly':
+            next_date = base_date + relativedelta(months=1)
+        else:
+            next_date = base_date
+
+        task.due_date = next_date.strftime('%Y-%m-%d')
+        # Task stays uncompleted
+        messagebox.showinfo("Recurring Task",
+                           f"Task reset \u2014 next due: {task.due_date}")
 
     def delete_task(self, idx):
         """Delete a task"""
@@ -450,20 +615,23 @@ class ChecklistApp:
         current_text = task.text
         current_priority = task.priority
         current_due_date = task.due_date
+        current_recurrence = task.recurrence
 
-        def on_save(new_text, priority=None, due_date=None):
+        def on_save(new_text, priority=None, due_date=None, recurrence=None):
             self.record_state("Edit task")
             task.text = new_text
             if priority is not None:
                 task.priority = priority
             if due_date is not None or task.due_date is not None:
                 task.due_date = due_date
+            task.recurrence = recurrence
             self.save_data()
             self.render_tasks()
 
         EditTaskDialog(self.root, current_text, on_save,
                       current_priority=current_priority,
                       current_due_date=current_due_date,
+                      current_recurrence=current_recurrence,
                       show_options=True)
 
     def clear_completed(self):
@@ -541,6 +709,54 @@ class ChecklistApp:
 
         EditTaskDialog(self.root, current_text, on_save, title="Edit Sub-task")
 
+    def add_note_dialog(self, task_idx):
+        """Show dialog to add a note to a task"""
+        def on_add(text):
+            category = self.checklist.get_current_category()
+            if category and 0 <= task_idx < len(category.tasks):
+                self.record_state("Add note")
+                category.tasks[task_idx].add_note(text)
+                self.save_data()
+                self.render_tasks()
+
+        AddNoteDialog(self.root, on_add)
+
+    def edit_note_dialog(self, task_idx, note_idx):
+        """Show dialog to edit a note"""
+        category = self.checklist.get_current_category()
+        if not category or not (0 <= task_idx < len(category.tasks)):
+            return
+
+        task = category.tasks[task_idx]
+        if not (0 <= note_idx < len(task.notes)):
+            return
+
+        current_text = task.notes[note_idx]
+
+        def on_save(new_text):
+            self.record_state("Edit note")
+            task.notes[note_idx] = new_text
+            self.save_data()
+            self.render_tasks()
+
+        EditTaskDialog(self.root, current_text, on_save, title="Edit Note")
+
+    def delete_note(self, task_idx, note_idx):
+        """Delete a note from a task"""
+        category = self.checklist.get_current_category()
+        if not category or not (0 <= task_idx < len(category.tasks)):
+            return
+
+        task = category.tasks[task_idx]
+        if not (0 <= note_idx < len(task.notes)):
+            return
+
+        if messagebox.askyesno("Delete Note", "Delete this note?"):
+            self.record_state("Delete note")
+            task.notes.pop(note_idx)
+            self.save_data()
+            self.render_tasks()
+
     def set_reminder_dialog(self, task_idx):
         """Show dialog to set a reminder for a task"""
         category = self.checklist.get_current_category()
@@ -559,44 +775,47 @@ class ChecklistApp:
 
     def check_reminders(self):
         """Check for due reminders and show notifications"""
-        now = datetime.now()
-        reminders_triggered = []
-        corrupted_reminders = []
+        try:
+            now = datetime.now()
+            reminders_triggered = []
+            corrupted_reminders = []
 
-        for category in self.checklist.categories:
-            for task in category.tasks:
-                if task.reminder:
-                    try:
-                        reminder_time = datetime.fromisoformat(task.reminder)
-                        if reminder_time <= now:
-                            reminders_triggered.append({
-                                'category': category.name,
-                                'task': task.text,
-                                'task_obj': task
-                            })
-                    except ValueError:
-                        corrupted_reminders.append(task)
+            for category in self.checklist.categories:
+                for task in category.tasks:
+                    if task.reminder:
+                        try:
+                            reminder_time = datetime.fromisoformat(task.reminder)
+                            if reminder_time <= now:
+                                reminders_triggered.append({
+                                    'category': category.name,
+                                    'task': task.text,
+                                    'task_obj': task
+                                })
+                        except (ValueError, TypeError):
+                            corrupted_reminders.append(task)
 
-        # Clear any corrupted reminders
-        for task in corrupted_reminders:
-            task.reminder = None
+            # Clear any corrupted reminders
+            for task in corrupted_reminders:
+                task.reminder = None
 
-        # Show notifications for triggered reminders
-        for reminder_info in reminders_triggered:
-            try:
-                self.show_notification(
-                    title=f"Reminder: {reminder_info['category']}",
-                    message=reminder_info['task'][:100]
-                )
-            finally:
-                reminder_info['task_obj'].reminder = None
+            # Show notifications for triggered reminders
+            for reminder_info in reminders_triggered:
+                try:
+                    self.show_notification(
+                        title=f"Reminder: {reminder_info['category']}",
+                        message=reminder_info['task'][:100]
+                    )
+                finally:
+                    reminder_info['task_obj'].reminder = None
 
-        if reminders_triggered or corrupted_reminders:
-            self.save_data()
-            self.render_tasks()
-
-        # Check again in 30 seconds
-        self.root.after(30000, self.check_reminders)
+            if reminders_triggered or corrupted_reminders:
+                self.save_data()
+                self.render_tasks()
+        except Exception:
+            pass  # Never let reminder checking crash the polling loop
+        finally:
+            # Always reschedule — ensures the loop survives any error
+            self._reminder_after_id = self.root.after(30000, self.check_reminders)
 
     def show_notification(self, title, message):
         """Show a system notification (cross-platform)"""
@@ -613,6 +832,42 @@ class ChecklistApp:
                 pass
 
         self.root.after(0, lambda: messagebox.showinfo(title, message))
+
+    def import_tasks(self):
+        """Import tasks from Markdown or CSV file"""
+        filename = filedialog.askopenfilename(
+            filetypes=[("Supported files", "*.md *.csv"),
+                       ("Markdown files", "*.md"),
+                       ("CSV files", "*.csv"),
+                       ("All files", "*.*")]
+        )
+        if not filename:
+            return
+
+        category = self.checklist.get_current_category()
+        if not category:
+            messagebox.showwarning("No Category", "Please select a category first.")
+            return
+
+        try:
+            tasks = TaskImporter.import_file(filename)
+        except Exception as e:
+            messagebox.showerror("Import Error", f"Failed to import:\n{e}")
+            return
+
+        if not tasks:
+            messagebox.showinfo("No Tasks", "No tasks found in the file.")
+            return
+
+        if messagebox.askyesno("Import Tasks",
+                              f"Import {len(tasks)} task(s) into '{category.name}'?"):
+            self.record_state("Import tasks")
+            for task in tasks:
+                category.add_task(task)
+            self.save_data()
+            self.refresh_ui()
+            messagebox.showinfo("Import Complete",
+                               f"Imported {len(tasks)} task(s).")
 
     def export_markdown(self):
         """Export all tasks to Markdown file using MarkdownExporter"""
@@ -634,7 +889,9 @@ class ChecklistApp:
 
     def save_data(self):
         """Save data via ChecklistStorage"""
-        if not self.storage.save_checklist(self.checklist):
+        if self.storage.save_checklist(self.checklist):
+            self._dirty = False
+        else:
             messagebox.showerror("Error Saving Data", "Failed to save checklist.")
 
     def load_data(self):
@@ -642,7 +899,7 @@ class ChecklistApp:
         if not self.storage.file_exists():
             return
 
-        # Create backup before loading in case file is corrupted
+        # Create crash-recovery backup before loading
         backup_file = self.storage.get_file_path() + '.backup'
         try:
             file_path = self.storage.get_file_path()
@@ -650,6 +907,10 @@ class ChecklistApp:
                 shutil.copy2(file_path, backup_file)
         except (IOError, OSError):
             pass  # Backup creation is best-effort
+
+        # Create timestamped version-history backup
+        self.storage.backup_file()
+        self.storage.rotate_backups()
 
         checklist = self.storage.load_checklist()
         if checklist:
@@ -712,6 +973,10 @@ class ChecklistApp:
 
     def load_checklist_file(self, filename):
         """Load a specific checklist file"""
+        # Create timestamped backup of current file before switching
+        self.storage.backup_file()
+        self.storage.rotate_backups()
+
         # Keep backup of current state in case load fails
         backup_checklist = copy.deepcopy(self.checklist)
         backup_file_path = self.storage.get_file_path()
@@ -767,6 +1032,63 @@ class ChecklistApp:
     def clear_recent_files(self):
         """Clear the recent files list"""
         self.settings_mgr.clear_recent_files()
+
+    def _start_autosave(self):
+        """Start or restart the autosave timer"""
+        if self._autosave_after_id:
+            self.root.after_cancel(self._autosave_after_id)
+            self._autosave_after_id = None
+
+        if self.settings_mgr.get_setting('autosave_enabled', True):
+            interval = self.settings_mgr.get_setting('autosave_interval_seconds', 30)
+            self._autosave_after_id = self.root.after(
+                interval * 1000, self._autosave_tick)
+
+    def _autosave_tick(self):
+        """Autosave timer tick"""
+        if self._dirty:
+            self.save_data()
+        self._start_autosave()
+
+    def toggle_autosave(self):
+        """Toggle autosave on/off"""
+        current = self.settings_mgr.get_setting('autosave_enabled', True)
+        self.settings_mgr.set_setting('autosave_enabled', not current)
+        self._start_autosave()
+
+    def _on_close(self):
+        """Handle window close with unsaved changes check"""
+        if self._dirty:
+            result = messagebox.askyesnocancel(
+                "Unsaved Changes",
+                "You have unsaved changes. Save before closing?")
+            if result is True:
+                self.save_data()
+                self.root.destroy()
+            elif result is False:
+                self.root.destroy()
+            # result is None (Cancel) — do nothing
+        else:
+            self.root.destroy()
+
+    def toggle_theme(self):
+        """Toggle between light and dark theme"""
+        from src.utils.constants import ThemeManager
+        current = self.settings_mgr.get_setting('theme', 'light')
+        new_theme = 'dark' if current == 'light' else 'light'
+        self.settings_mgr.set_setting('theme', new_theme)
+        theme_colors = ThemeManager.get_colors(new_theme)
+        self.main_window.apply_theme(theme_colors)
+        self.sidebar.apply_theme(theme_colors)
+        self.task_panel.apply_theme(theme_colors)
+        self.input_area.apply_theme(theme_colors)
+        self.search_bar.apply_theme(theme_colors)
+        self.refresh_ui()
+
+    def show_help_dialog(self):
+        """Show keyboard shortcuts and app info"""
+        help_text = self.shortcut_mgr.create_help_text()
+        HelpDialog(self.root, help_text)
 
     def change_input_color(self):
         """Change the color of the input box"""

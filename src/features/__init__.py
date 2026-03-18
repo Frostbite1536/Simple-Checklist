@@ -8,6 +8,7 @@ from .shortcuts import ShortcutManager, DefaultShortcuts
 from .search import TaskSearcher
 from .task_sorting import TaskSorter
 from .undo_manager import UndoManager
+from .importer import TaskImporter
 
 __all__ = ['MarkdownExporter', 'ShortcutManager', 'DefaultShortcuts',
-           'TaskSearcher', 'TaskSorter', 'UndoManager']
+           'TaskSearcher', 'TaskSorter', 'UndoManager', 'TaskImporter']

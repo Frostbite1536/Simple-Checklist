@@ -302,6 +302,43 @@ class TestTask(unittest.TestCase):
         self.assertEqual(len(data['notes']), 2)  # Original unchanged
 
 
+    def test_recurrence_default_none(self):
+        """Test recurrence defaults to None"""
+        task = Task("Test")
+        self.assertIsNone(task.recurrence)
+
+    def test_recurrence_valid_values(self):
+        """Test valid recurrence values"""
+        for recurrence in [None, 'daily', 'weekly', 'monthly']:
+            task = Task("Test", recurrence=recurrence)
+            self.assertEqual(task.recurrence, recurrence)
+
+    def test_recurrence_invalid_raises(self):
+        """Test invalid recurrence raises ValueError"""
+        with self.assertRaises(ValueError):
+            Task("Test", recurrence='yearly')
+
+    def test_recurrence_serialization(self):
+        """Test recurrence roundtrips through to_dict/from_dict"""
+        task = Task("Test", recurrence='weekly', due_date='2026-01-01')
+        data = task.to_dict()
+        self.assertEqual(data['recurrence'], 'weekly')
+        restored = Task.from_dict(data)
+        self.assertEqual(restored.recurrence, 'weekly')
+
+    def test_recurrence_from_dict_clamps_invalid(self):
+        """Test from_dict clamps invalid recurrence to None"""
+        data = {'text': 'Test', 'recurrence': 'yearly'}
+        task = Task.from_dict(data)
+        self.assertIsNone(task.recurrence)
+
+    def test_recurrence_omitted_from_dict_when_none(self):
+        """Test recurrence is omitted from to_dict when None"""
+        task = Task("Test")
+        data = task.to_dict()
+        self.assertNotIn('recurrence', data)
+
+
 class TestCategory(unittest.TestCase):
     """Tests for Category class"""
 
