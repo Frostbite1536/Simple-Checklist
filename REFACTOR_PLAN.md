@@ -50,7 +50,7 @@ UI Components (updated to accept model objects)
 
 Ensure model classes handle all data the app needs. Fix known bugs.
 
-#### 1a. Fix list aliasing in `Task.from_dict()` and `Category.from_dict()`
+#### 1a. Fix list aliasing in `Task.from_dict()`
 
 **File:** `src/models/task.py`
 ```python
@@ -60,40 +60,25 @@ notes=data.get('notes', []),
 notes=list(data.get('notes', [])),
 ```
 
-**File:** `src/models/category.py`
-```python
-# Line 132-134 — Change:
-tasks = [Task.from_dict(task_data) for task_data in data['tasks']]
-# This is already safe (creates new list), but also copy the inner data:
-# Actually the list comprehension already creates a new list. The concern
-# is that Task.from_dict passes notes by reference. Fix is only in task.py.
-```
+Note: `Category.from_dict()` is safe — it creates new `Task` objects via a list
+comprehension, so no aliasing at the category level. The bug is only in `Task`
+passing the `notes` list reference from the source dict without copying.
 
-#### 1b. Add `to_dict()` that always includes all fields
+#### 1b. `to_dict()` changes are NOT needed
 
-**File:** `src/models/task.py` — Add a `to_full_dict()` method (or modify `to_dict()`)
+After review, changing UI components to use attribute access (Phase 2) eliminates
+the need for `to_dict()` to always include all fields. The only remaining consumers
+of `to_dict()` are:
 
-The current `to_dict()` omits default values (no notes, no subtasks, medium priority,
-no due_date, no reminder). The UI components expect all fields present. Two options:
+- **Undo/redo** (serializes for snapshot — Phase 6e): `Checklist.from_dict()` already
+  handles missing fields with defaults, so the compact format works fine.
+- **Persistence** (save to JSON — Phase 4a): Compact format is actually preferable
+  for smaller file sizes.
+- **Tests**: The existing `test_to_dict` tests verify the current conditional behavior.
+  Changing it would break those tests for no benefit.
 
-**Option chosen:** Modify `to_dict()` to always include all fields. This ensures
-UI components always see every key without needing `.get()` fallbacks.
-
-```python
-def to_dict(self) -> Dict[str, Any]:
-    return {
-        'text': self.text,
-        'completed': self.completed,
-        'created': self.created,
-        'notes': self.notes,
-        'subtasks': [st.to_dict() for st in self.subtasks],
-        'priority': self.priority,
-        'due_date': self.due_date,
-        'reminder': self.reminder,
-    }
-```
-
-This is a non-breaking change since all consumers use `.get()` with defaults anyway.
+**Decision:** Keep `to_dict()` as-is. The UI layer will use attribute access directly
+on model objects (Phase 2), so it never calls `to_dict()` at all.
 
 #### 1c. Add data migration support to `Checklist.from_dict()`
 
@@ -124,18 +109,25 @@ but `categories` becomes `List[Category]` instead of `List[dict]`.
 
 **File:** `src/ui/task_panel.py`
 
-Change dict access to attribute access:
-- `category['tasks']` → `category.tasks`
-- `category['name']` → `category.name`  (not actually used here)
-- `task['text']` → `task.text`
-- `task['completed']` → `task.completed`
-- `task.get('priority', 'medium')` → `task.priority`
-- `task.get('due_date')` → `task.due_date`
-- `task.get('reminder')` → `task.reminder`
-- `task.get('subtasks')` → `task.subtasks`
-- `task.get('notes')` → `task.notes`
+`render_tasks()` checks `if not category:` (line 131) which correctly handles `None`
+(Category objects are always truthy). Then accesses `category['tasks']` (line 138) —
+change to `category.tasks`.
 
-For subtasks:
+In `_render_task()`, change all dict access to attribute access. The file uses a mix
+of direct bracket access and `.get()` with defaults:
+
+Direct access (will crash if key missing — but attributes always exist on model):
+- `task['completed']` → `task.completed` (lines 170, 186, 194, 274)
+- `task['text']` → `task.text` (lines 251, 256, 268)
+
+`.get()` access (optional fields — attributes always exist on model with defaults):
+- `task.get('priority', 'medium')` → `task.priority` (line 163)
+- `task.get('due_date')` → `task.due_date` (line 273)
+- `task.get('reminder') is not None` → `task.reminder is not None` (line 207)
+- `task.get('subtasks')` → `task.subtasks` (lines 301-302; truthy check still works — empty list is falsy)
+- `task.get('notes')` → `task.notes` (lines 305-306; same truthy check)
+
+For subtasks in `_render_subtasks()`:
 - `subtask['text']` → `subtask.text`
 - `subtask['completed']` → `subtask.completed`
 
@@ -152,15 +144,23 @@ access data dicts directly.
 
 **File:** `src/features/search.py`
 
-Change `search_tasks()` to accept `List[Category]` instead of `List[dict]`:
-- `cat['id']` → `cat.id`
-- `cat['name']` → `cat.name`
-- `cat.get('tasks', [])` → `cat.tasks`
-- `task.get('text', '')` → `task.text`
-- `task.get('completed', False)` → `task.completed`
-- `task.get('subtasks', [])` → `task.subtasks`
-- `subtask.get('text', '')` → `subtask.text`
-- `task.get('notes', [])` → `task.notes`
+Change `search_tasks()` to accept `List[Category]` instead of `List[dict]`.
+The method uses a mix of direct bracket access and `.get()`:
+
+Direct bracket access (in result dict construction):
+- `cat['id']` → `cat.id` (line 48)
+- `cat['name']` → `cat.name` (line 49)
+
+`.get()` access with defaults:
+- `cat.get('tasks', [])` → `cat.tasks` (line 37)
+- `task.get('text', '').lower()` → `task.text.lower()` (line 46)
+- `task.get('completed', False)` → `task.completed` (line 39)
+- `task.get('subtasks', [])` → `task.subtasks` (line 58)
+- `subtask.get('text', '').lower()` → `subtask.text.lower()` (line 59)
+- `task.get('notes', [])` → `task.notes` (line 72)
+
+Category filtering:
+- `c['id'] == category_id` → `c.id == category_id` (line 32)
 
 Search results will return `Task` objects instead of dicts:
 ```python
@@ -173,7 +173,9 @@ results.append({
 })
 ```
 
-Also update `filter_by_status()` and `filter_by_reminder()` to work with Task objects.
+Also update `filter_by_status()` and `filter_by_reminder()`:
+- `t.get('completed', False)` → `t.completed`
+- `t.get('reminder')` → `t.reminder`
 
 #### 3b. Update `TaskSorter` to work with model objects
 
@@ -201,13 +203,45 @@ Replace `self.data_file` + `json.dump/load` with:
 self.storage = ChecklistStorage(file_path)
 ```
 
-- `save_data()` → `self.storage.save_checklist(self.checklist)`
-- `load_data()` → `self.checklist = self.storage.load_checklist() or self.storage.create_default_checklist()`
-- `load_checklist_file(filename)` → `self.storage.set_file_path(filename)` then load
-- Keep backup logic (ChecklistStorage.backup_file())
+**`save_data()`** simplifies to:
+```python
+def save_data(self):
+    if not self.storage.save_checklist(self.checklist):
+        messagebox.showerror("Error Saving Data", "Failed to save checklist.")
+```
 
-The `migrate_data()` method moves into `Checklist.from_dict()` (Phase 1c), so it
-runs automatically on load.
+**`load_data()`** keeps its extra logic that `ChecklistStorage.load_checklist()` lacks:
+- Pre-load backup via `shutil.copy2` (the app currently does this at line 742)
+- Backup recovery if load fails (lines 754-764)
+- Messagebox warnings on corruption/recovery
+- Fallback to `self.storage.create_default_checklist()`
+
+```python
+def load_data(self):
+    if not self.storage.file_exists():
+        return
+    # Create backup before loading (existing logic)
+    self.storage.backup_file("backup")
+    checklist = self.storage.load_checklist()
+    if checklist:
+        self.checklist = checklist
+    else:
+        # Try recovery from backup (keep existing recovery logic)
+        ...
+```
+
+Note: `ChecklistStorage.load_checklist()` internally calls `Checklist.from_dict()`,
+which gains migration logic in Phase 1c. But the backup-before-load, backup-recovery,
+and messagebox feedback must stay in `ChecklistApp`.
+
+**`load_checklist_file(filename)`** keeps its validation and rollback logic:
+- Validates root is dict, has 'categories' list (lines 897-903)
+- Keeps backup of previous data for rollback on failure (line 889)
+- This validation should move into `ChecklistStorage` or `Checklist.from_dict()`
+
+**File path changes** (`new_checklist`, `open_checklist`, `save_checklist_as`):
+Use `self.storage.set_file_path(new_path)` instead of `self.data_file = new_path`.
+Access via `self.storage.get_file_path()` instead of `self.data_file`.
 
 #### 4b. Replace inline settings with `SettingsManager`
 
@@ -280,16 +314,55 @@ def export_pending_only(self):
 
 **File:** `simple-checklist.py`
 
-Replace the manual `self.root.bind(...)` calls in `setup_shortcuts()` with:
+Replace the manual `self.root.bind(...)` calls in `setup_shortcuts()` with
+`ShortcutManager`. Note: `DefaultShortcuts` only registers `add_task` (Shift+Return)
+and category switching (Ctrl+1-9). All other shortcuts must be registered manually:
+
 ```python
 self.shortcut_mgr = ShortcutManager(self.root)
+
+# Undo/Redo (register both cases for cross-platform)
 self.shortcut_mgr.register_shortcut('<Control-z>', lambda e: self.undo_action(), "Undo")
+self.shortcut_mgr.register_shortcut('<Control-Z>', lambda e: self.undo_action(), "Undo")
 self.shortcut_mgr.register_shortcut('<Control-y>', lambda e: self.redo_action(), "Redo")
-# ... etc for all shortcuts
+self.shortcut_mgr.register_shortcut('<Control-Y>', lambda e: self.redo_action(), "Redo")
+self.shortcut_mgr.register_shortcut('<Control-Shift-z>', lambda e: self.redo_action(), "Redo")
+self.shortcut_mgr.register_shortcut('<Control-Shift-Z>', lambda e: self.redo_action(), "Redo")
+
+# Search
+self.shortcut_mgr.register_shortcut('<Control-f>', lambda e: self.search_bar.focus(), "Search")
+self.shortcut_mgr.register_shortcut('<Control-F>', lambda e: self.search_bar.focus(), "Search")
+
+# Category switching: Ctrl+1-9 AND Alt+1-9 (fallback for systems where Ctrl+N fails)
+for i in range(1, 10):
+    self.shortcut_mgr.register_shortcut(
+        f'<Control-Key-{i}>',
+        lambda e, idx=i-1: self._handle_category_shortcut(idx),
+        f"Switch to category {i}")
+    self.shortcut_mgr.register_shortcut(
+        f'<Control-{i}>',
+        lambda e, idx=i-1: self._handle_category_shortcut(idx))
+    self.shortcut_mgr.register_shortcut(
+        f'<Alt-Key-{i}>',
+        lambda e, idx=i-1: self._handle_category_shortcut(idx))
+    self.shortcut_mgr.register_shortcut(
+        f'<Alt-{i}>',
+        lambda e, idx=i-1: self._handle_category_shortcut(idx))
+
+# Arrow navigation for 10+ categories
+self.shortcut_mgr.register_shortcut('<Control-Left>', lambda e: self._navigate_categories(-1), "Previous category")
+self.shortcut_mgr.register_shortcut('<Control-Right>', lambda e: self._navigate_categories(1), "Next category")
+self.shortcut_mgr.register_shortcut('<Control-Up>', lambda e: self._navigate_categories(-1), "Previous category")
+self.shortcut_mgr.register_shortcut('<Control-Down>', lambda e: self._navigate_categories(1), "Next category")
+
 self.shortcut_mgr.bind_all()
 ```
 
-Add Help > Keyboard Shortcuts menu item:
+Note: Only register descriptions for the "primary" binding of each shortcut (e.g.,
+`<Control-z>` gets "Undo" but `<Control-Z>` and Alt fallbacks get no description)
+so `create_help_text()` doesn't show duplicates.
+
+Add Help > Keyboard Shortcuts menu item in `MainWindow._setup_menu()`:
 ```python
 def show_shortcuts_help(self):
     help_text = self.shortcut_mgr.create_help_text()
@@ -329,12 +402,19 @@ self.checklist = Checklist()
 |---|---|
 | `self.data['categories']` | `self.checklist.categories` |
 | `self.data['current_category']` | `self.checklist.current_category_id` |
-| `self.data['current_category'] = cat_id` | `self.checklist.set_current_category(cat_id)` |
+| `self.data['current_category'] = cat_id` | `self.checklist.current_category_id = cat_id` (direct assignment — see note below) |
 | `self.get_current_category()` (manual loop) | `self.checklist.get_current_category()` |
 | `max([c['id'] for c in ...]) + 1` | `self.checklist.get_next_category_id()` |
 | `self.data['categories'].append({...})` | `self.checklist.add_category(Category(...))` |
 | `self.data['categories'] = [c for c if ...]` | `self.checklist.remove_category(cat_id)` |
-| `self.data['categories'].pop(i).insert(j)` | `self.checklist.reorder_categories(i, j)` |
+| `self.data['categories'].pop(i)` + `.insert(j)` | `self.checklist.reorder_categories(i, j)` |
+
+**Note on `set_current_category` vs direct assignment:** `Checklist.set_current_category(cat_id)`
+validates the ID exists and returns `False` if not found. The current app unconditionally sets
+`self.data['current_category'] = cat_id` in `switch_category()`. Use direct assignment
+(`self.checklist.current_category_id = cat_id`) in `switch_category()` to match current behavior,
+since callers already guarantee valid IDs. Use `set_current_category()` only where validation
+is wanted (e.g., `load_checklist_file` where data comes from external files).
 
 #### 6c. Update all task operations
 
@@ -418,15 +498,25 @@ def refresh_ui(self):
 ### Phase 7: Remove Dead Code & Consolidate (Low Risk)
 
 #### 7a. Remove `ChecklistStorage.export_to_markdown()` and `_generate_markdown()`
-Replaced by `MarkdownExporter`.
+Replaced by `MarkdownExporter`. Also remove `test_export_to_markdown` from
+`tests/test_persistence.py` (it tests the removed methods).
 
 #### 7b. Remove `DragDropManager` class
 Sidebar has its own drag-drop. Remove `src/features/drag_drop.py`.
-Update `src/features/__init__.py` to remove the import.
+Update `src/features/__init__.py` to remove the `DragDropManager` import.
+Also remove the entire `TestDragDropManager` class from `tests/test_features.py`
+(~85 lines of tests for the removed class).
 
 #### 7c. Remove backward-compatibility aliases
 **File:** `src/persistence/__init__.py` — Remove `Storage = ChecklistStorage` and
-`Settings = SettingsManager`.
+`Settings = SettingsManager`. Note: `simple-checklist.py` imports these aliases at
+line 43 (`from src.persistence import Storage, Settings`). Update that import to
+use the real class names, or defer this removal until Phase 6 when those imports
+are rewritten anyway.
+
+#### 7c-ii. Update `src/features/__init__.py` exports
+Add `TaskSearcher`, `TaskSorter`, and `UndoManager` to the package exports so
+all feature classes are accessible via `from src.features import ...`.
 
 #### 7d. Centralize `MAX_CATEGORY_NAME_LENGTH`
 Move to `src/utils/constants.py` as `UI.MAX_CATEGORY_NAME_LENGTH = 16`.
@@ -461,8 +551,19 @@ bind/unbind/mousewheel logic used by both Sidebar and TaskPanel.
 ### Phase 8: Update Tests (Critical)
 
 #### 8a. Update existing model/persistence/feature tests
-These should continue passing since model APIs don't change (only `to_dict` now
-includes all fields). Verify no test relies on fields being absent.
+
+Since `to_dict()` is NOT being changed (Phase 1b revised), existing `test_to_dict`
+tests in `test_models.py` will continue passing as-is.
+
+Tests that WILL break and need updating:
+- `test_export_to_markdown` in `test_persistence.py` — removed method (Phase 7a)
+- `TestDragDropManager` in `test_features.py` — removed class (Phase 7b)
+- `TestMarkdownExporter` in `test_features.py` — still valid, no changes needed
+- `TestShortcutManager` in `test_features.py` — still valid, no changes needed
+
+Tests that need attention for Phase 3 changes:
+- Any future tests for `TaskSearcher` and `TaskSorter` must use model objects
+  (Task/Category) instead of raw dicts as input.
 
 #### 8b. Add tests for `TaskSearcher`
 Test search across categories, single category, case insensitivity, match types,
@@ -553,25 +654,25 @@ The recommended order within Phase 6 is:
 
 | File | Changes |
 |---|---|
-| `src/models/task.py` | Fix aliasing, always-include to_dict |
-| `src/models/checklist.py` | Add migration logic to from_dict |
-| `src/ui/sidebar.py` | Dict access → attribute access, use constant |
+| `src/models/task.py` | Fix notes aliasing in `from_dict()` |
+| `src/models/checklist.py` | Add migration logic to `from_dict()` |
+| `src/ui/sidebar.py` | Dict access → attribute access, use constant import |
 | `src/ui/task_panel.py` | Dict access → attribute access, fix mousewheel |
 | `src/ui/main_window.py` | Add Export submenu, Help menu |
 | `src/ui/dialogs.py` | Use constant import |
-| `src/features/search.py` | Dict access → attribute access |
-| `src/features/task_sorting.py` | Dict access → attribute access |
+| `src/features/search.py` | Dict access → attribute access on Task/Category |
+| `src/features/task_sorting.py` | Dict access → attribute access on Task |
 | `src/features/shortcuts.py` | No changes (already correct) |
-| `src/features/export.py` | No changes (already correct) |
+| `src/features/export.py` | No changes (already works with model objects) |
 | `src/features/undo_manager.py` | No changes (already correct) |
-| `src/features/__init__.py` | Remove DragDropManager import |
-| `src/persistence/storage.py` | Remove export_to_markdown, _generate_markdown |
-| `src/persistence/__init__.py` | Remove backward-compat aliases |
-| `src/utils/constants.py` | Add MAX_CATEGORY_NAME_LENGTH |
+| `src/features/__init__.py` | Remove DragDropManager, add TaskSearcher/TaskSorter/UndoManager |
+| `src/persistence/storage.py` | Remove `export_to_markdown`, `_generate_markdown` |
+| `src/persistence/__init__.py` | Remove backward-compat aliases (after Phase 6 import update) |
+| `src/utils/constants.py` | Add `MAX_CATEGORY_NAME_LENGTH` |
 | `simple-checklist.py` | Major refactor — model-based architecture |
-| `tests/test_models.py` | Update for to_dict changes |
-| `tests/test_features.py` | Update for model-based search/sort, add UndoManager tests |
-| `tests/test_persistence.py` | Minimal changes |
+| `tests/test_models.py` | No changes needed (`to_dict` behavior unchanged) |
+| `tests/test_features.py` | Remove DragDropManager tests, add UndoManager/Searcher/Sorter tests |
+| `tests/test_persistence.py` | Remove `test_export_to_markdown` |
 | `tests/test_ui_integration.py` | Add ChecklistApp integration tests |
 
 ## Files Removed
