@@ -61,6 +61,9 @@ class UI:
     FONT_EMPTY = (FONT_FAMILY, 14)
     FONT_EMPTY_SUB = (FONT_FAMILY, 12)
 
+    # Category
+    MAX_CATEGORY_NAME_LENGTH = 16
+
     # Padding
     PADDING_SMALL = 5
     PADDING_MEDIUM = 10

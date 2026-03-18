@@ -1,6 +1,6 @@
 """
 Unit tests for feature modules
-Tests for DragDropManager, MarkdownExporter, and ShortcutManager
+Tests for MarkdownExporter, ShortcutManager, TaskSearcher, TaskSorter, UndoManager
 """
 
 import unittest
@@ -11,99 +11,14 @@ import tempfile
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.features.drag_drop import DragDropManager
 from src.features.export import MarkdownExporter
 from src.features.shortcuts import ShortcutManager, DefaultShortcuts
+from src.features.search import TaskSearcher
+from src.features.task_sorting import TaskSorter
+from src.features.undo_manager import UndoManager
 from src.models.checklist import Checklist
 from src.models.category import Category
 from src.models.task import Task, Subtask
-
-
-class TestDragDropManager(unittest.TestCase):
-    """Tests for DragDropManager class"""
-
-    def setUp(self):
-        """Set up test fixtures"""
-        self.checklist = Checklist()
-        self.checklist.add_category(Category(1, "First"))
-        self.checklist.add_category(Category(2, "Second"))
-        self.checklist.add_category(Category(3, "Third"))
-
-        self.reorder_called = False
-
-        def on_reorder():
-            self.reorder_called = True
-
-        self.manager = DragDropManager(self.checklist, on_reorder)
-
-    def test_init(self):
-        """Test initialization"""
-        self.assertEqual(self.manager.checklist, self.checklist)
-        self.assertIsNotNone(self.manager.on_reorder)
-        self.assertIsNone(self.manager.drag_data['index'])
-
-    def test_start_drag(self):
-        """Test starting a drag operation"""
-        self.manager.start_drag(0)
-        self.assertEqual(self.manager.get_drag_source_index(), 0)
-        self.assertTrue(self.manager.is_dragging())
-
-    def test_start_drag_invalid_index(self):
-        """Test starting drag with invalid index"""
-        self.manager.start_drag(10)
-        self.assertIsNone(self.manager.get_drag_source_index())
-        self.assertFalse(self.manager.is_dragging())
-
-    def test_end_drag_reorder(self):
-        """Test completing a drag with reordering"""
-        self.manager.start_drag(0)
-        result = self.manager.end_drag(2)
-
-        self.assertTrue(result)
-        self.assertTrue(self.reorder_called)
-        self.assertFalse(self.manager.is_dragging())
-        # Check reordering occurred
-        self.assertEqual(self.checklist.categories[0].name, "Second")
-        self.assertEqual(self.checklist.categories[2].name, "First")
-
-    def test_end_drag_same_position(self):
-        """Test ending drag at same position"""
-        self.manager.start_drag(1)
-        result = self.manager.end_drag(1)
-
-        self.assertFalse(result)
-        self.assertFalse(self.reorder_called)
-
-    def test_end_drag_without_start(self):
-        """Test ending drag without starting"""
-        result = self.manager.end_drag(1)
-        self.assertFalse(result)
-
-    def test_reset_drag(self):
-        """Test resetting drag state"""
-        self.manager.start_drag(0)
-        self.assertTrue(self.manager.is_dragging())
-
-        self.manager.reset_drag()
-        self.assertFalse(self.manager.is_dragging())
-        self.assertIsNone(self.manager.get_drag_source_index())
-
-    def test_validate_reorder(self):
-        """Test reorder validation"""
-        self.assertTrue(self.manager.validate_reorder(0, 2))
-        self.assertFalse(self.manager.validate_reorder(0, 0))  # Same index
-        self.assertFalse(self.manager.validate_reorder(-1, 2))  # Invalid source
-        self.assertFalse(self.manager.validate_reorder(0, 10))  # Invalid target
-
-    def test_get_reorder_preview(self):
-        """Test getting reorder preview"""
-        preview = self.manager.get_reorder_preview(0, 2)
-        self.assertEqual(preview, ["Second", "Third", "First"])
-
-    def test_get_reorder_preview_invalid(self):
-        """Test getting preview with invalid indices"""
-        preview = self.manager.get_reorder_preview(0, 10)
-        self.assertIsNone(preview)
 
 
 class TestMarkdownExporter(unittest.TestCase):
@@ -500,6 +415,280 @@ class TestDefaultShortcuts(unittest.TestCase):
 
         # Should have task shortcuts + 9 category shortcuts
         self.assertGreaterEqual(self.manager.get_shortcut_count(), 10)
+
+
+class TestTaskSearcher(unittest.TestCase):
+    """Tests for TaskSearcher class"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.cat1 = Category(1, "Work")
+        self.cat1.add_task(Task("Write report", notes=["quarterly review"]))
+        self.cat1.add_task(Task("Fix bug in login", completed=True))
+        task_with_sub = Task("Deploy application")
+        task_with_sub.add_subtask(Subtask("Run tests"))
+        task_with_sub.add_subtask(Subtask("Update config"))
+        self.cat1.add_task(task_with_sub)
+
+        self.cat2 = Category(2, "Personal")
+        self.cat2.add_task(Task("Buy groceries"))
+        self.cat2.add_task(Task("Write blog post"))
+
+        self.categories = [self.cat1, self.cat2]
+
+    def test_search_by_task_text(self):
+        """Test searching by task text"""
+        results = TaskSearcher.search_tasks(self.categories, "write")
+        self.assertEqual(len(results), 2)  # "Write report" and "Write blog post"
+
+    def test_search_by_subtask_text(self):
+        """Test searching by subtask text"""
+        results = TaskSearcher.search_tasks(self.categories, "run tests")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['match_type'], 'subtask')
+
+    def test_search_by_note_text(self):
+        """Test searching by note text"""
+        results = TaskSearcher.search_tasks(self.categories, "quarterly")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['match_type'], 'note')
+
+    def test_search_case_insensitive(self):
+        """Test case-insensitive search"""
+        results = TaskSearcher.search_tasks(self.categories, "WRITE")
+        self.assertEqual(len(results), 2)
+
+    def test_search_in_specific_category(self):
+        """Test search within specific category"""
+        results = TaskSearcher.search_tasks(self.categories, "write", category_id=1)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['category_name'], "Work")
+
+    def test_search_exclude_completed(self):
+        """Test searching excluding completed tasks"""
+        results = TaskSearcher.search_tasks(self.categories, "bug", include_completed=False)
+        self.assertEqual(len(results), 0)
+
+    def test_search_include_completed(self):
+        """Test searching including completed tasks"""
+        results = TaskSearcher.search_tasks(self.categories, "bug", include_completed=True)
+        self.assertEqual(len(results), 1)
+
+    def test_search_empty_query(self):
+        """Test searching with empty query"""
+        results = TaskSearcher.search_tasks(self.categories, "")
+        self.assertEqual(len(results), 0)
+
+    def test_search_no_results(self):
+        """Test searching with no matching results"""
+        results = TaskSearcher.search_tasks(self.categories, "nonexistent")
+        self.assertEqual(len(results), 0)
+
+    def test_search_result_contains_task_object(self):
+        """Test that results contain Task objects"""
+        results = TaskSearcher.search_tasks(self.categories, "report")
+        self.assertEqual(len(results), 1)
+        self.assertIsInstance(results[0]['task'], Task)
+
+    def test_filter_by_status_completed(self):
+        """Test filtering by completed status"""
+        tasks = self.cat1.tasks
+        completed = TaskSearcher.filter_by_status(tasks, completed=True)
+        self.assertEqual(len(completed), 1)
+
+    def test_filter_by_status_pending(self):
+        """Test filtering by pending status"""
+        tasks = self.cat1.tasks
+        pending = TaskSearcher.filter_by_status(tasks, completed=False)
+        self.assertEqual(len(pending), 2)
+
+    def test_filter_by_status_all(self):
+        """Test filtering all tasks"""
+        tasks = self.cat1.tasks
+        all_tasks = TaskSearcher.filter_by_status(tasks, completed=None)
+        self.assertEqual(len(all_tasks), 3)
+
+    def test_filter_by_reminder(self):
+        """Test filtering by reminder"""
+        task_with_reminder = Task("Reminder task", reminder="2025-12-01T10:00:00")
+        task_without = Task("No reminder")
+        tasks = [task_with_reminder, task_without]
+
+        with_reminder = TaskSearcher.filter_by_reminder(tasks, has_reminder=True)
+        self.assertEqual(len(with_reminder), 1)
+
+        without_reminder = TaskSearcher.filter_by_reminder(tasks, has_reminder=False)
+        self.assertEqual(len(without_reminder), 1)
+
+
+class TestTaskSorter(unittest.TestCase):
+    """Tests for TaskSorter class"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.tasks = [
+            Task("B task", priority='low', created='2025-01-03T10:00:00'),
+            Task("A task", priority='high', created='2025-01-01T10:00:00', due_date='2025-06-01'),
+            Task("C task", priority='medium', completed=True, created='2025-01-02T10:00:00', due_date='2025-03-01'),
+        ]
+
+    def test_sort_by_created(self):
+        """Test sorting by creation date"""
+        TaskSorter.sort_tasks(self.tasks, 'created')
+        self.assertEqual(self.tasks[0].text, "A task")
+        self.assertEqual(self.tasks[2].text, "B task")
+
+    def test_sort_by_due_date(self):
+        """Test sorting by due date"""
+        TaskSorter.sort_tasks(self.tasks, 'due_date')
+        self.assertEqual(self.tasks[0].text, "C task")  # 2025-03-01
+        self.assertEqual(self.tasks[1].text, "A task")  # 2025-06-01
+        self.assertEqual(self.tasks[2].text, "B task")  # no due date → 9999-12-31
+
+    def test_sort_by_priority(self):
+        """Test sorting by priority"""
+        TaskSorter.sort_tasks(self.tasks, 'priority')
+        self.assertEqual(self.tasks[0].priority, 'high')
+        self.assertEqual(self.tasks[1].priority, 'medium')
+        self.assertEqual(self.tasks[2].priority, 'low')
+
+    def test_sort_by_completion(self):
+        """Test sorting by completion status"""
+        TaskSorter.sort_tasks(self.tasks, 'completion')
+        self.assertFalse(self.tasks[0].completed)
+        self.assertTrue(self.tasks[2].completed)
+
+    def test_sort_alphabetically(self):
+        """Test alphabetical sorting"""
+        TaskSorter.sort_tasks(self.tasks, 'a-z')
+        self.assertEqual(self.tasks[0].text, "A task")
+        self.assertEqual(self.tasks[1].text, "B task")
+        self.assertEqual(self.tasks[2].text, "C task")
+
+    def test_sort_reverse(self):
+        """Test reverse sorting"""
+        TaskSorter.sort_tasks(self.tasks, 'a-z', reverse=True)
+        self.assertEqual(self.tasks[0].text, "C task")
+        self.assertEqual(self.tasks[2].text, "A task")
+
+    def test_sort_smart(self):
+        """Test smart sorting"""
+        TaskSorter.sort_smart(self.tasks)
+        # Incomplete first, then by priority (high first), then by due date
+        self.assertFalse(self.tasks[0].completed)
+        self.assertEqual(self.tasks[0].priority, 'high')
+        self.assertTrue(self.tasks[2].completed)
+
+    def test_sort_empty_list(self):
+        """Test sorting empty list"""
+        result = TaskSorter.sort_tasks([], 'created')
+        self.assertEqual(result, [])
+
+    def test_sort_smart_empty(self):
+        """Test smart sort on empty list"""
+        result = TaskSorter.sort_smart([])
+        self.assertEqual(result, [])
+
+
+class TestUndoManager(unittest.TestCase):
+    """Tests for UndoManager class"""
+
+    def setUp(self):
+        """Set up test fixtures"""
+        self.manager = UndoManager(max_history=5)
+
+    def test_record_and_undo(self):
+        """Test recording state and undoing"""
+        state1 = {'value': 1}
+        state2 = {'value': 2}
+
+        self.manager.record_state(state1, "Set to 1")
+        previous = self.manager.undo(state2)
+
+        self.assertIsNotNone(previous)
+        self.assertEqual(previous['value'], 1)
+
+    def test_undo_empty(self):
+        """Test undo with nothing to undo"""
+        result = self.manager.undo({'value': 1})
+        self.assertIsNone(result)
+
+    def test_redo(self):
+        """Test redo after undo"""
+        state1 = {'value': 1}
+        state2 = {'value': 2}
+
+        self.manager.record_state(state1)
+        self.manager.undo(state2)  # Now redo stack has state2
+        redo_state = self.manager.redo({'value': 1})
+
+        self.assertIsNotNone(redo_state)
+        self.assertEqual(redo_state['value'], 2)
+
+    def test_redo_empty(self):
+        """Test redo with nothing to redo"""
+        result = self.manager.redo({'value': 1})
+        self.assertIsNone(result)
+
+    def test_can_undo(self):
+        """Test can_undo check"""
+        self.assertFalse(self.manager.can_undo())
+        self.manager.record_state({'value': 1})
+        self.assertTrue(self.manager.can_undo())
+
+    def test_can_redo(self):
+        """Test can_redo check"""
+        self.assertFalse(self.manager.can_redo())
+        self.manager.record_state({'value': 1})
+        self.manager.undo({'value': 2})
+        self.assertTrue(self.manager.can_redo())
+
+    def test_redo_cleared_on_new_action(self):
+        """Test redo stack cleared when new action recorded"""
+        self.manager.record_state({'value': 1})
+        self.manager.undo({'value': 2})
+        self.assertTrue(self.manager.can_redo())
+
+        self.manager.record_state({'value': 3})
+        self.assertFalse(self.manager.can_redo())
+
+    def test_max_history(self):
+        """Test max history enforcement"""
+        for i in range(10):
+            self.manager.record_state({'value': i})
+
+        self.assertEqual(len(self.manager.undo_stack), 5)
+
+    def test_clear(self):
+        """Test clearing all history"""
+        self.manager.record_state({'value': 1})
+        self.manager.record_state({'value': 2})
+        self.manager.clear()
+
+        self.assertFalse(self.manager.can_undo())
+        self.assertFalse(self.manager.can_redo())
+
+    def test_deep_copy(self):
+        """Test that states are deep-copied"""
+        state = {'value': [1, 2, 3]}
+        self.manager.record_state(state)
+        state['value'].append(4)  # Modify original
+
+        previous = self.manager.undo({'value': []})
+        self.assertEqual(previous['value'], [1, 2, 3])  # Should not include 4
+
+    def test_descriptions(self):
+        """Test action descriptions"""
+        self.manager.record_state({'value': 1}, "Add task")
+        desc = self.manager.get_undo_description()
+        self.assertEqual(desc, "Add task")
+
+    def test_redo_description(self):
+        """Test redo description after undo"""
+        self.manager.record_state({'value': 1}, "Add task")
+        self.manager.undo({'value': 2})
+        desc = self.manager.get_redo_description()
+        self.assertIsNotNone(desc)
 
 
 if __name__ == '__main__':

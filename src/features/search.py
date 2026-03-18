@@ -13,7 +13,7 @@ class TaskSearcher:
         Search for tasks matching query string
 
         Args:
-            categories: List of category dictionaries
+            categories: List of Category model objects
             query: Search query string
             category_id: Optional - only search in this category
             include_completed: Whether to include completed tasks
@@ -29,24 +29,24 @@ class TaskSearcher:
 
         # Filter categories if specific category requested
         if category_id is not None:
-            cats_to_search = [c for c in categories if c['id'] == category_id]
+            cats_to_search = [c for c in categories if c.id == category_id]
         else:
             cats_to_search = categories
 
         for cat in cats_to_search:
-            for task_idx, task in enumerate(cat.get('tasks', [])):
+            for task_idx, task in enumerate(cat.tasks):
                 # Skip completed tasks if not included
-                if not include_completed and task.get('completed', False):
+                if not include_completed and task.completed:
                     continue
 
                 # Track if task already matched to prevent duplicates
                 matched = False
 
                 # Check main task text
-                if query_lower in task.get('text', '').lower():
+                if query_lower in task.text.lower():
                     results.append({
-                        'category_id': cat['id'],
-                        'category_name': cat['name'],
+                        'category_id': cat.id,
+                        'category_name': cat.name,
                         'task_idx': task_idx,
                         'task': task,
                         'match_type': 'task'
@@ -55,11 +55,11 @@ class TaskSearcher:
 
                 # Check subtasks (only if not already matched)
                 if not matched:
-                    for subtask in task.get('subtasks', []):
-                        if query_lower in subtask.get('text', '').lower():
+                    for subtask in task.subtasks:
+                        if query_lower in subtask.text.lower():
                             results.append({
-                                'category_id': cat['id'],
-                                'category_name': cat['name'],
+                                'category_id': cat.id,
+                                'category_name': cat.name,
                                 'task_idx': task_idx,
                                 'task': task,
                                 'match_type': 'subtask'
@@ -69,11 +69,11 @@ class TaskSearcher:
 
                 # Check notes (only if not already matched)
                 if not matched:
-                    for note in task.get('notes', []):
+                    for note in task.notes:
                         if query_lower in note.lower():
                             results.append({
-                                'category_id': cat['id'],
-                                'category_name': cat['name'],
+                                'category_id': cat.id,
+                                'category_name': cat.name,
                                 'task_idx': task_idx,
                                 'task': task,
                                 'match_type': 'note'
@@ -88,7 +88,7 @@ class TaskSearcher:
         Filter tasks by completion status
 
         Args:
-            tasks: List of task dictionaries
+            tasks: List of Task model objects
             completed: None for all, True for completed only, False for pending only
 
         Returns:
@@ -96,7 +96,7 @@ class TaskSearcher:
         """
         if completed is None:
             return tasks
-        return [t for t in tasks if t.get('completed', False) == completed]
+        return [t for t in tasks if t.completed == completed]
 
     @staticmethod
     def filter_by_reminder(tasks, has_reminder=True):
@@ -104,12 +104,12 @@ class TaskSearcher:
         Filter tasks by reminder status
 
         Args:
-            tasks: List of task dictionaries
+            tasks: List of Task model objects
             has_reminder: True for tasks with reminders, False for without
 
         Returns:
             Filtered list of tasks
         """
         if has_reminder:
-            return [t for t in tasks if t.get('reminder')]
-        return [t for t in tasks if not t.get('reminder')]
+            return [t for t in tasks if t.reminder]
+        return [t for t in tasks if not t.reminder]

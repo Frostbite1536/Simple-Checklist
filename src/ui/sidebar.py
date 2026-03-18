@@ -5,10 +5,10 @@ Displays categories with drag-and-drop reordering support
 
 import tkinter as tk
 from tkinter import ttk
+from ..utils.constants import UI
+from . import scrollable_mixin
 
-# Maximum character limit for category names
-# Bug #19 fix: Reduced from 17 to 16 to prevent delete button from being pushed off-screen
-MAX_CATEGORY_NAME_LENGTH = 16
+MAX_CATEGORY_NAME_LENGTH = UI.MAX_CATEGORY_NAME_LENGTH
 
 
 class Sidebar:
@@ -106,39 +106,11 @@ class Sidebar:
 
     def _bind_mousewheel(self, event):
         """Bind mousewheel when mouse enters canvas"""
-        self.canvas.bind('<MouseWheel>', self._on_mousewheel)
-        self.canvas.bind('<Button-4>', self._on_mousewheel_linux)
-        self.canvas.bind('<Button-5>', self._on_mousewheel_linux)
-        self.category_frame.bind('<MouseWheel>', self._on_mousewheel)
-        self.category_frame.bind('<Button-4>', self._on_mousewheel_linux)
-        self.category_frame.bind('<Button-5>', self._on_mousewheel_linux)
+        scrollable_mixin.bind_mousewheel(self.canvas, self.category_frame)
 
     def _unbind_mousewheel(self, event):
         """Unbind mousewheel when mouse leaves canvas"""
-        self.canvas.unbind('<MouseWheel>')
-        self.canvas.unbind('<Button-4>')
-        self.canvas.unbind('<Button-5>')
-        self.category_frame.unbind('<MouseWheel>')
-        self.category_frame.unbind('<Button-4>')
-        self.category_frame.unbind('<Button-5>')
-
-    def _on_mousewheel(self, event):
-        """Handle mousewheel scroll (Windows/Mac)"""
-        # On Windows, event.delta is a multiple of 120; on macOS it is +/-1.
-        # Normalize to a consistent scroll direction and apply a 3-unit speed.
-        if abs(event.delta) >= 120:
-            direction = -1 if event.delta > 0 else 1
-        else:
-            direction = -1 if event.delta > 0 else 1
-        self.canvas.yview_scroll(direction * 3, 'units')
-
-    def _on_mousewheel_linux(self, event):
-        """Handle mousewheel scroll (Linux)"""
-        # Bug #20 fix: Increased scroll speed from 1 to 3 units for more responsive scrolling
-        if event.num == 4:
-            self.canvas.yview_scroll(-3, 'units')
-        elif event.num == 5:
-            self.canvas.yview_scroll(3, 'units')
+        scrollable_mixin.unbind_mousewheel(self.canvas, self.category_frame)
 
     def pack(self, **kwargs):
         """Pack the sidebar frame"""
@@ -159,7 +131,7 @@ class Sidebar:
         Render the category list
 
         Args:
-            categories: List of category dictionaries with 'id', 'name', and 'tasks'
+            categories: List of Category model objects
             current_category_id: ID of the currently selected category
         """
         # Clear existing widgets and button tracking
@@ -169,15 +141,15 @@ class Sidebar:
 
         # Create category buttons
         for idx, cat in enumerate(categories):
-            is_active = cat['id'] == current_category_id
+            is_active = cat.id == current_category_id
 
             frame = tk.Frame(self.category_frame,
                            bg='#3498db' if is_active else '#2c3e50')
             frame.pack(fill=tk.X, pady=3)
 
             # Truncate long category names and add task count
-            display_name = self._truncate_name(cat['name'])
-            btn_text = f"{display_name} ({len(cat['tasks'])})"
+            display_name = self._truncate_name(cat.name)
+            btn_text = f"{display_name} ({cat.get_task_count()})"
 
             btn = tk.Button(frame,
                           text=btn_text,
@@ -193,10 +165,10 @@ class Sidebar:
 
             # Bind drag-and-drop events
             btn.bind('<Button-1>',
-                    lambda e, i=idx, c=cat['id']: self._on_drag_start(e, i, c))
+                    lambda e, i=idx, c=cat.id: self._on_drag_start(e, i, c))
             btn.bind('<B1-Motion>', self._on_drag_motion)
             btn.bind('<ButtonRelease-1>',
-                    lambda e, c=cat['id']: self._on_drag_release(e, c))
+                    lambda e, c=cat.id: self._on_drag_release(e, c))
 
             # Button container for edit and delete (fixed width to prevent overflow)
             btn_container = tk.Frame(frame, bg='#3498db' if is_active else '#2c3e50')
@@ -208,7 +180,7 @@ class Sidebar:
                                     bg='#9b59b6', fg='white',
                                     relief=tk.FLAT, width=2,
                                     font=('Segoe UI', 9),
-                                    command=lambda c=cat['id'], n=cat['name']:
+                                    command=lambda c=cat.id, n=cat.name:
                                         self.on_category_edit(c, n))
                 edit_btn.pack(side=tk.LEFT, padx=1)
 
@@ -217,7 +189,7 @@ class Sidebar:
                               bg='#e74c3c', fg='white',
                               relief=tk.FLAT, width=2,
                               font=('Segoe UI', 9),
-                              command=lambda c=cat['id']: self.on_category_delete(c))
+                              command=lambda c=cat.id: self.on_category_delete(c))
             del_btn.pack(side=tk.LEFT, padx=1)
 
     def _on_drag_start(self, event, index, cat_id):

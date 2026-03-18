@@ -1,10 +1,13 @@
 """
 Feature modules for Simple Checklist
-Specific functionality like drag-drop, export, keyboard shortcuts
+Specific functionality like export, keyboard shortcuts, search, sorting, undo
 """
 
-from .drag_drop import DragDropManager
 from .export import MarkdownExporter
 from .shortcuts import ShortcutManager, DefaultShortcuts
+from .search import TaskSearcher
+from .task_sorting import TaskSorter
+from .undo_manager import UndoManager
 
-__all__ = ['DragDropManager', 'MarkdownExporter', 'ShortcutManager', 'DefaultShortcuts']
+__all__ = ['MarkdownExporter', 'ShortcutManager', 'DefaultShortcuts',
+           'TaskSearcher', 'TaskSorter', 'UndoManager']

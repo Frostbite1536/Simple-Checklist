@@ -16,7 +16,7 @@ class TaskSorter:
         Sort tasks by specified criteria
 
         Args:
-            tasks: List of task dictionaries
+            tasks: List of Task model objects
             sort_by: Sort key - 'created', 'due_date', 'priority', 'completion', 'a-z'
             reverse: Whether to reverse the sort order
 
@@ -27,32 +27,25 @@ class TaskSorter:
             return tasks
 
         if sort_by == 'created':
-            # Sort by creation date (oldest first by default)
-            tasks.sort(key=lambda t: t.get('created', ''), reverse=reverse)
+            tasks.sort(key=lambda t: t.created or '', reverse=reverse)
 
         elif sort_by == 'due_date':
-            # Sort by due date (earliest first, tasks without due date at end)
             tasks.sort(
-                key=lambda t: t.get('due_date', '9999-12-31') or '9999-12-31',
+                key=lambda t: t.due_date or '9999-12-31',
                 reverse=reverse
             )
 
         elif sort_by == 'priority':
-            # Sort by priority (high first by default)
             tasks.sort(
-                key=lambda t: TaskSorter.PRIORITY_ORDER.get(
-                    t.get('priority', 'medium'), 1
-                ),
+                key=lambda t: TaskSorter.PRIORITY_ORDER.get(t.priority, 1),
                 reverse=reverse
             )
 
         elif sort_by == 'completion':
-            # Sort by completion status (incomplete first by default)
-            tasks.sort(key=lambda t: t.get('completed', False), reverse=reverse)
+            tasks.sort(key=lambda t: t.completed, reverse=reverse)
 
         elif sort_by == 'a-z':
-            # Sort alphabetically by task text
-            tasks.sort(key=lambda t: t.get('text', '').lower(), reverse=reverse)
+            tasks.sort(key=lambda t: t.text.lower(), reverse=reverse)
 
         return tasks
 
@@ -62,7 +55,7 @@ class TaskSorter:
         Smart sort: incomplete first, then by priority (high to low), then by due date
 
         Args:
-            tasks: List of task dictionaries
+            tasks: List of Task model objects
 
         Returns:
             Sorted list of tasks
@@ -71,14 +64,9 @@ class TaskSorter:
             return tasks
 
         def smart_key(task):
-            # Completed tasks go to the bottom
-            completed = 1 if task.get('completed', False) else 0
-            # Priority order (high=0, medium=1, low=2)
-            priority = TaskSorter.PRIORITY_ORDER.get(
-                task.get('priority', 'medium'), 1
-            )
-            # Due date (earlier dates first, no date at end)
-            due_date = task.get('due_date', '9999-12-31') or '9999-12-31'
+            completed = 1 if task.completed else 0
+            priority = TaskSorter.PRIORITY_ORDER.get(task.priority, 1)
+            due_date = task.due_date or '9999-12-31'
             return (completed, priority, due_date)
 
         tasks.sort(key=smart_key)

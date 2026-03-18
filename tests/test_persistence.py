@@ -123,41 +123,6 @@ class TestChecklistStorage(unittest.TestCase):
         self.assertGreater(checklist.get_category_count(), 0)
         self.assertIsNotNone(checklist.current_category_id)
 
-    def test_export_to_markdown(self):
-        """Test exporting to markdown"""
-        # Create checklist with data
-        checklist = Checklist()
-        cat1 = Category(1, "Work")
-        task1 = Task("Task 1", completed=True)
-        task2 = Task("Task 2", completed=False)
-        task2.add_subtask(Subtask("Sub 1", completed=True))
-        task2.add_subtask(Subtask("Sub 2", completed=False))
-        cat1.add_task(task1)
-        cat1.add_task(task2)
-        checklist.add_category(cat1)
-
-        # Export
-        md_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.md')
-        md_file.close()
-
-        try:
-            result = self.storage.export_to_markdown(checklist, md_file.name)
-            self.assertTrue(result)
-
-            # Read and verify
-            with open(md_file.name, 'r', encoding='utf-8') as f:
-                content = f.read()
-
-            self.assertIn("# Checklist Export", content)
-            self.assertIn("## Work", content)
-            self.assertIn("[x] Task 1", content)
-            self.assertIn("[ ] Task 2", content)
-            self.assertIn("[x] Sub 1", content)
-            self.assertIn("[ ] Sub 2", content)
-        finally:
-            if os.path.exists(md_file.name):
-                os.unlink(md_file.name)
-
     def test_backup_file(self):
         """Test creating a backup"""
         # Create and save a checklist

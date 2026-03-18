@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk
 import tkinter.font as tkfont
 from datetime import datetime
+from . import scrollable_mixin
 
 
 class TaskPanel:
@@ -69,41 +70,11 @@ class TaskPanel:
 
     def _bind_mousewheel(self, event):
         """Bind mousewheel when mouse enters canvas"""
-        # Use bind() on canvas instead of bind_all() to avoid global binding conflicts
-        self.canvas.bind('<MouseWheel>', self._on_mousewheel)
-        self.canvas.bind('<Button-4>', self._on_mousewheel_linux)
-        self.canvas.bind('<Button-5>', self._on_mousewheel_linux)
-        # Also bind to the task_frame for events that occur on child widgets
-        self.task_frame.bind('<MouseWheel>', self._on_mousewheel)
-        self.task_frame.bind('<Button-4>', self._on_mousewheel_linux)
-        self.task_frame.bind('<Button-5>', self._on_mousewheel_linux)
+        scrollable_mixin.bind_mousewheel(self.canvas, self.task_frame)
 
     def _unbind_mousewheel(self, event):
         """Unbind mousewheel when mouse leaves canvas"""
-        self.canvas.unbind('<MouseWheel>')
-        self.canvas.unbind('<Button-4>')
-        self.canvas.unbind('<Button-5>')
-        self.task_frame.unbind('<MouseWheel>')
-        self.task_frame.unbind('<Button-4>')
-        self.task_frame.unbind('<Button-5>')
-
-    def _on_mousewheel(self, event):
-        """Handle mousewheel scroll (Windows/Mac)"""
-        # On Windows, event.delta is a multiple of 120; on macOS it is +/-1.
-        # Normalize to a consistent scroll direction and apply a 3-unit speed.
-        if abs(event.delta) >= 120:
-            direction = -1 if event.delta > 0 else 1
-        else:
-            direction = -1 if event.delta > 0 else 1
-        self.canvas.yview_scroll(direction * 3, 'units')
-
-    def _on_mousewheel_linux(self, event):
-        """Handle mousewheel scroll (Linux)"""
-        # Bug #20 fix: Increased scroll speed from 1 to 3 units for more responsive scrolling
-        if event.num == 4:
-            self.canvas.yview_scroll(-3, 'units')
-        elif event.num == 5:
-            self.canvas.yview_scroll(3, 'units')
+        scrollable_mixin.unbind_mousewheel(self.canvas, self.task_frame)
 
     def pack(self, **kwargs):
         """Pack the task panel container"""
@@ -122,7 +93,7 @@ class TaskPanel:
         Render tasks for a category
 
         Args:
-            category: Category dictionary with 'name' and 'tasks', or None
+            category: Category model object, or None
         """
         # Clear existing widgets
         for widget in self.task_frame.winfo_children():
@@ -135,7 +106,7 @@ class TaskPanel:
             empty.pack(pady=50)
             return
 
-        if not category['tasks']:
+        if not category.tasks:
             empty = tk.Label(self.task_frame,
                            text="No tasks yet\nStart typing below to add your first task!",
                            bg='white', fg='#95a5a6',
@@ -144,7 +115,7 @@ class TaskPanel:
             return
 
         # Render each task
-        for idx, task in enumerate(category['tasks']):
+        for idx, task in enumerate(category.tasks):
             self._render_task(idx, task)
 
     def _render_task(self, idx, task):
@@ -153,21 +124,21 @@ class TaskPanel:
 
         Args:
             idx: Task index
-            task: Task dictionary
+            task: Task model object
         """
         task_widget = tk.Frame(self.task_frame, bg='#f8f9fa',
                               relief=tk.FLAT, borderwidth=1)
         task_widget.pack(fill=tk.X, pady=5, padx=10)
 
         # Feature #3: Priority-based left border color
-        priority = task.get('priority', 'medium')
+        priority = task.priority
         priority_colors = {
             'high': '#e74c3c',    # Red
             'medium': '#f39c12',  # Orange
             'low': '#27ae60'      # Green
         }
         border_color = priority_colors.get(priority, '#3498db')
-        if task['completed']:
+        if task.completed:
             border_color = '#95a5a6'  # Gray for completed
 
         # Left border
@@ -183,7 +154,7 @@ class TaskPanel:
         main_row.pack(fill=tk.X)
 
         # Feature #3: Priority indicator
-        if priority != 'medium' and not task['completed']:
+        if priority != 'medium' and not task.completed:
             priority_symbols = {'high': '●', 'low': '○'}
             priority_label = tk.Label(main_row, text=priority_symbols.get(priority, ''),
                                      fg=priority_colors.get(priority, '#3498db'),
@@ -191,7 +162,7 @@ class TaskPanel:
             priority_label.pack(side=tk.LEFT, padx=(0, 2))
 
         # Checkbox with explicit styling for visibility
-        var = tk.BooleanVar(value=task['completed'])
+        var = tk.BooleanVar(value=task.completed)
         cb = tk.Checkbutton(main_row, variable=var, bg='#f8f9fa',
                            activebackground='#f8f9fa',
                            selectcolor='white',
@@ -204,7 +175,7 @@ class TaskPanel:
 
         # Reminder button
         if self.on_set_reminder:
-            has_reminder = task.get('reminder') is not None
+            has_reminder = task.reminder is not None
             reminder_btn = tk.Button(btn_frame, text="🔔",
                                     bg='#f39c12' if has_reminder else '#95a5a6',
                                     fg='white',
@@ -240,7 +211,7 @@ class TaskPanel:
 
         # Text styling
         text_style = {'cursor': 'xterm'}
-        if task['completed']:
+        if task.completed:
             text_style['fg'] = '#7f8c8d'
             text_style['font'] = tkfont.Font(family='Segoe UI', size=11, overstrike=True)
         else:
@@ -248,12 +219,12 @@ class TaskPanel:
 
         # Calculate height based on number of lines in text
         # Bug fix: Account for both explicit newlines AND potential word-wrap lines
-        explicit_lines = task['text'].count('\n') + 1
+        explicit_lines = task.text.count('\n') + 1
 
         # Estimate additional lines from word wrap
         # Assume approximately 60 characters per visual line as a conservative estimate
         # This ensures long single-line text will have adequate height
-        text_length = len(task['text'])
+        text_length = len(task.text)
         chars_per_line = 60
         estimated_wrap_lines = max(1, (text_length + chars_per_line - 1) // chars_per_line)
 
@@ -265,13 +236,13 @@ class TaskPanel:
         task_text = tk.Text(main_row, height=line_count,
                           bg='#f8f9fa', relief=tk.FLAT,
                           wrap=tk.WORD, **text_style)
-        task_text.insert('1.0', task['text'])
+        task_text.insert('1.0', task.text)
         task_text.config(state=tk.DISABLED)
         task_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # Feature #4: Due date display
-        due_date = task.get('due_date')
-        if due_date and not task['completed']:
+        due_date = task.due_date
+        if due_date and not task.completed:
             try:
                 due_dt = datetime.strptime(due_date, '%Y-%m-%d')
                 days_left = (due_dt.date() - datetime.now().date()).days
@@ -298,12 +269,12 @@ class TaskPanel:
                 pass  # Invalid date format
 
         # Render subtasks
-        if task.get('subtasks'):
-            self._render_subtasks(content, idx, task['subtasks'])
+        if task.subtasks:
+            self._render_subtasks(content, idx, task.subtasks)
 
         # Render notes
-        if task.get('notes'):
-            self._render_notes(content, task['notes'])
+        if task.notes:
+            self._render_notes(content, task.notes)
 
     def _render_subtasks(self, parent, task_idx, subtasks):
         """
@@ -312,7 +283,7 @@ class TaskPanel:
         Args:
             parent: Parent widget
             task_idx: Task index
-            subtasks: List of subtask dictionaries
+            subtasks: List of Subtask model objects
         """
         subtasks_frame = tk.Frame(parent, bg='#f8f9fa')
         subtasks_frame.pack(fill=tk.X, padx=20, pady=5)
@@ -321,7 +292,7 @@ class TaskPanel:
             sub_row = tk.Frame(subtasks_frame, bg='#f8f9fa')
             sub_row.pack(fill=tk.X, pady=2)
 
-            sub_var = tk.BooleanVar(value=subtask['completed'])
+            sub_var = tk.BooleanVar(value=subtask.completed)
             sub_cb = tk.Checkbutton(sub_row, variable=sub_var, bg='#f8f9fa',
                                    activebackground='#f8f9fa',
                                    selectcolor='white',
@@ -353,7 +324,7 @@ class TaskPanel:
             del_sub_btn.pack(side=tk.LEFT, padx=1)
 
             sub_text_style = {}
-            if subtask['completed']:
+            if subtask.completed:
                 sub_text_style['fg'] = '#7f8c8d'
                 sub_text_style['font'] = tkfont.Font(family='Segoe UI', size=10, overstrike=True)
             else:
@@ -362,7 +333,7 @@ class TaskPanel:
 
             # Use Label for subtasks with wraplength for long text
             # wraplength=400 allows text to wrap within the panel width
-            sub_text = tk.Label(sub_row, text=f"↳ {subtask['text']}",
+            sub_text = tk.Label(sub_row, text=f"↳ {subtask.text}",
                                bg='#f8f9fa', anchor='w', justify=tk.LEFT,
                                wraplength=400,
                                **sub_text_style)

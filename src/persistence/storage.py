@@ -9,7 +9,7 @@ from typing import Optional
 from datetime import datetime
 
 from ..models.checklist import Checklist
-from ..utils.constants import Paths, Defaults, FileTypes
+from ..utils.constants import Paths, Defaults
 
 
 class ChecklistStorage:
@@ -113,71 +113,6 @@ class ChecklistStorage:
             checklist.set_current_category(Defaults.CATEGORIES[0]['id'])
 
         return checklist
-
-    def export_to_markdown(self, checklist: Checklist, file_path: str) -> bool:
-        """
-        Export checklist to Markdown file
-
-        Args:
-            checklist: Checklist to export
-            file_path: Path to save the markdown file
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            markdown = self._generate_markdown(checklist)
-
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(markdown)
-
-            return True
-        except Exception as e:
-            print(f"Error exporting to markdown: {e}")
-            return False
-
-    def _generate_markdown(self, checklist: Checklist) -> str:
-        """
-        Generate markdown content from checklist
-
-        Args:
-            checklist: Checklist to convert
-
-        Returns:
-            Markdown string
-        """
-        # Add timestamp header
-        timestamp = datetime.now().strftime(Defaults.EXPORT_TIMESTAMP_FORMAT)
-        markdown = f"# Checklist Export\n\n"
-        markdown += f"**Exported:** {timestamp}\n"
-        markdown += f"**File:** {os.path.basename(self.file_path)}\n\n"
-        markdown += "---\n\n"
-
-        # Add each category
-        for category in checklist.categories:
-            markdown += f"## {category.name}\n\n"
-
-            if not category.tasks:
-                markdown += "_No tasks_\n\n"
-            else:
-                for task in category.tasks:
-                    checkbox = '[x]' if task.completed else '[ ]'
-                    markdown += f"- {checkbox} {task.text}\n"
-
-                    # Export sub-tasks
-                    if task.subtasks:
-                        for subtask in task.subtasks:
-                            sub_checkbox = '[x]' if subtask.completed else '[ ]'
-                            markdown += f"  - {sub_checkbox} {subtask.text}\n"
-
-                    # Export notes
-                    if task.notes:
-                        for note in task.notes:
-                            markdown += f"    - {note}\n"
-
-                markdown += "\n"
-
-        return markdown
 
     def backup_file(self, backup_suffix: Optional[str] = None) -> bool:
         """

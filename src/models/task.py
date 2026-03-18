@@ -198,7 +198,7 @@ class Task:
         return cls(
             text=data.get('text', ''),  # Default to empty string if missing
             completed=data.get('completed', False),
-            notes=data.get('notes', []),
+            notes=list(data.get('notes', [])),
             subtasks=subtasks,
             created=data.get('created'),
             priority=data.get('priority', 'medium'),

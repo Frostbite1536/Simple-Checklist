@@ -13,8 +13,8 @@ Features:
 import tkinter as tk
 from tkinter import messagebox, filedialog, colorchooser
 import copy
-import json
 import os
+import shutil
 from datetime import datetime
 
 # Import UI components
@@ -39,13 +39,16 @@ except ImportError:
     HAS_PLYER = False
 
 # Import business logic
-from src.models import Category, Task, Checklist
-from src.persistence import Storage, Settings
+from src.models import Category, Task, Subtask, Checklist
+from src.persistence.storage import ChecklistStorage
+from src.persistence.settings import SettingsManager
 
 # Import features
 from src.features.undo_manager import UndoManager
 from src.features.search import TaskSearcher
 from src.features.task_sorting import TaskSorter
+from src.features.export import MarkdownExporter
+from src.features.shortcuts import ShortcutManager
 
 
 class ChecklistApp:
@@ -54,51 +57,40 @@ class ChecklistApp:
         self.root.title("Simple Checklist")
         self.root.geometry("900x600")
 
-        # Data
-        self.data = {
-            'categories': [],
-            'current_category': None
-        }
-        self.data_file = os.path.join(os.path.expanduser('~'), '.simple_checklist.json')
+        # Persistence
+        self.storage = ChecklistStorage()
+        self.settings_mgr = SettingsManager()
 
-        # Settings
-        self.settings = {
-            'input_bg_color': 'white',
-            'recent_files': []
-        }
-        self.settings_file = os.path.join(os.path.expanduser('~'), '.simple_checklist_settings.json')
-        self.load_settings()
+        # Data — model objects throughout
+        self.checklist = Checklist()
 
         # Initialize undo/redo manager (Feature #1)
         self.undo_manager = UndoManager(max_history=20)
 
         # Load data
         self.load_data()
-        if not self.data['categories']:
+        if not self.checklist.categories:
             self.init_default_categories()
 
         # Setup UI components
         self.setup_ui()
 
         # Render initial state
-        self.sidebar.render_categories(self.data['categories'],
-                                       self.data['current_category'])
-        self.render_tasks()
+        self.refresh_ui()
 
         # Keyboard shortcuts
         self.setup_shortcuts()
 
     def init_default_categories(self):
         """Initialize with default categories"""
-        self.data['categories'] = [
-            {'id': 1, 'name': 'Slack', 'tasks': []},
-            {'id': 2, 'name': 'Discord', 'tasks': []},
-            {'id': 3, 'name': 'Twitter', 'tasks': []},
-            {'id': 4, 'name': 'Telegram', 'tasks': []},
-            {'id': 5, 'name': 'General', 'tasks': []}
-        ]
-        self.data['current_category'] = 1
+        self.checklist = self.storage.create_default_checklist()
         self.save_data()
+
+    def refresh_ui(self):
+        """Refresh sidebar and task panel to match current data."""
+        self.sidebar.render_categories(self.checklist.categories,
+                                       self.checklist.current_category_id)
+        self.render_tasks()
 
     def setup_ui(self):
         """Create the UI layout using modular components"""
@@ -111,7 +103,7 @@ class ChecklistApp:
             'on_change_color': self.change_input_color,
             'on_export_markdown': self.export_markdown,
             'on_clear_completed': self.clear_completed,
-            'get_recent_files': lambda: self.settings['recent_files'],
+            'get_recent_files': self.settings_mgr.get_recent_files,
             'on_load_recent_file': self.load_checklist_file,
             'on_clear_recent_files': self.clear_recent_files,
             # Feature #1: Undo/Redo callbacks
@@ -164,67 +156,71 @@ class ChecklistApp:
         self.input_area = InputArea(
             self.main_window.get_input_container(),
             on_add_task_callback=self.add_task_from_input,
-            input_bg_color=self.settings['input_bg_color']
+            input_bg_color=self.settings_mgr.get_input_bg_color()
         )
         self.input_area.pack(fill=tk.X, padx=20, pady=15)
 
     def setup_shortcuts(self):
-        """Setup keyboard shortcuts"""
-        # Bug #22 fix: Use multiple binding formats for better cross-platform support
-        # Ctrl+1-9 to switch categories
+        """Setup keyboard shortcuts via ShortcutManager"""
+        self.shortcut_mgr = ShortcutManager(self.root)
+
+        # Undo/Redo (register both cases for cross-platform)
+        self.shortcut_mgr.register_shortcut('<Control-z>', lambda e: self.undo_action(), "Undo")
+        self.shortcut_mgr.register_shortcut('<Control-Z>', lambda e: self.undo_action())
+        self.shortcut_mgr.register_shortcut('<Control-y>', lambda e: self.redo_action(), "Redo")
+        self.shortcut_mgr.register_shortcut('<Control-Y>', lambda e: self.redo_action())
+        self.shortcut_mgr.register_shortcut('<Control-Shift-z>', lambda e: self.redo_action())
+        self.shortcut_mgr.register_shortcut('<Control-Shift-Z>', lambda e: self.redo_action())
+
+        # Search
+        self.shortcut_mgr.register_shortcut('<Control-f>', lambda e: self.search_bar.focus(), "Search")
+        self.shortcut_mgr.register_shortcut('<Control-F>', lambda e: self.search_bar.focus())
+
+        # Category switching: Ctrl+1-9 AND Alt+1-9 (fallback)
         for i in range(1, 10):
-            # Try both binding formats for maximum compatibility
-            self.root.bind(f'<Control-Key-{i}>',
-                          lambda e, idx=i-1: self._handle_category_shortcut(idx))
-            self.root.bind(f'<Control-{i}>',
-                          lambda e, idx=i-1: self._handle_category_shortcut(idx))
-            # Also bind Alt+1-9 as fallback for systems where Ctrl+number doesn't work
-            self.root.bind(f'<Alt-Key-{i}>',
-                          lambda e, idx=i-1: self._handle_category_shortcut(idx))
-            self.root.bind(f'<Alt-{i}>',
-                          lambda e, idx=i-1: self._handle_category_shortcut(idx))
+            self.shortcut_mgr.register_shortcut(
+                f'<Control-Key-{i}>',
+                lambda e, idx=i-1: self._handle_category_shortcut(idx),
+                f"Switch to category {i}")
+            self.shortcut_mgr.register_shortcut(
+                f'<Control-{i}>',
+                lambda e, idx=i-1: self._handle_category_shortcut(idx))
+            self.shortcut_mgr.register_shortcut(
+                f'<Alt-Key-{i}>',
+                lambda e, idx=i-1: self._handle_category_shortcut(idx))
+            self.shortcut_mgr.register_shortcut(
+                f'<Alt-{i}>',
+                lambda e, idx=i-1: self._handle_category_shortcut(idx))
 
-        # Bug #23 fix: Add Ctrl+Left/Right arrow navigation for 10+ categories
-        self.root.bind('<Control-Left>', lambda e: self._navigate_categories(-1))
-        self.root.bind('<Control-Right>', lambda e: self._navigate_categories(1))
-        self.root.bind('<Control-Up>', lambda e: self._navigate_categories(-1))
-        self.root.bind('<Control-Down>', lambda e: self._navigate_categories(1))
+        # Arrow navigation for 10+ categories
+        self.shortcut_mgr.register_shortcut('<Control-Left>', lambda e: self._navigate_categories(-1), "Previous category")
+        self.shortcut_mgr.register_shortcut('<Control-Right>', lambda e: self._navigate_categories(1), "Next category")
+        self.shortcut_mgr.register_shortcut('<Control-Up>', lambda e: self._navigate_categories(-1))
+        self.shortcut_mgr.register_shortcut('<Control-Down>', lambda e: self._navigate_categories(1))
 
-        # Feature #1: Undo/Redo shortcuts
-        self.root.bind('<Control-z>', lambda e: self.undo_action())
-        self.root.bind('<Control-Z>', lambda e: self.undo_action())
-        self.root.bind('<Control-y>', lambda e: self.redo_action())
-        self.root.bind('<Control-Y>', lambda e: self.redo_action())
-        self.root.bind('<Control-Shift-z>', lambda e: self.redo_action())
-        self.root.bind('<Control-Shift-Z>', lambda e: self.redo_action())
-
-        # Feature #2: Search shortcut
-        self.root.bind('<Control-f>', lambda e: self.search_bar.focus())
-        self.root.bind('<Control-F>', lambda e: self.search_bar.focus())
+        self.shortcut_mgr.bind_all()
 
         # Start reminder checker
         self.check_reminders()
 
     def _navigate_categories(self, direction):
         """Navigate to previous/next category (for 10+ categories support)"""
-        # Bug #23 fix: Arrow key navigation for categories
-        # Check if input area has focus - don't navigate if user is typing
         try:
             if hasattr(self, 'input_area') and self.input_area.has_focus():
-                return  # Allow normal arrow key behavior in input
+                return
         except (KeyError, AttributeError):
             pass
 
-        categories = self.data['categories']
+        categories = self.checklist.categories
         if not categories:
             return
 
-        current_id = self.data['current_category']
+        current_id = self.checklist.current_category_id
 
         # Find current category index
         current_idx = None
         for i, cat in enumerate(categories):
-            if cat['id'] == current_id:
+            if cat.id == current_id:
                 current_idx = i
                 break
 
@@ -233,43 +229,36 @@ class ChecklistApp:
 
         # Calculate next index with wrap-around
         next_idx = (current_idx + direction) % len(categories)
-        self.switch_category(categories[next_idx]['id'])
+        self.switch_category(categories[next_idx].id)
 
     def _handle_category_shortcut(self, idx):
         """Handle category switching shortcut, ignoring if input has focus"""
-        # Bug #11 fix: Don't switch categories if input area is focused
         try:
-            focused_widget = self.root.focus_get()
-            # Check if focus is on the input area's text widget
             if hasattr(self, 'input_area') and self.input_area.has_focus():
-                return  # Ignore shortcut when input is focused
+                return
         except (KeyError, AttributeError):
             pass
         self.switch_category_by_index(idx)
 
     def record_state(self, action_description=""):
         """Record current state before a change (Feature #1: Undo/Redo)"""
-        self.undo_manager.record_state(self.data, action_description)
+        self.undo_manager.record_state(self.checklist.to_dict(), action_description)
 
     def undo_action(self):
         """Undo the last action (Feature #1)"""
-        previous_state = self.undo_manager.undo(self.data)
+        previous_state = self.undo_manager.undo(self.checklist.to_dict())
         if previous_state:
-            self.data = previous_state
+            self.checklist = Checklist.from_dict(previous_state)
             self.save_data()
-            self.sidebar.render_categories(self.data['categories'],
-                                           self.data['current_category'])
-            self.render_tasks()
+            self.refresh_ui()
 
     def redo_action(self):
         """Redo the last undone action (Feature #1)"""
-        redo_state = self.undo_manager.redo(self.data)
+        redo_state = self.undo_manager.redo(self.checklist.to_dict())
         if redo_state:
-            self.data = redo_state
+            self.checklist = Checklist.from_dict(redo_state)
             self.save_data()
-            self.sidebar.render_categories(self.data['categories'],
-                                           self.data['current_category'])
-            self.render_tasks()
+            self.refresh_ui()
 
     def render_tasks(self):
         """Render tasks for current category"""
@@ -278,11 +267,11 @@ class ChecklistApp:
             self.search_tasks(self.search_bar.get_query())
             return
 
-        category = self.get_current_category()
+        category = self.checklist.get_current_category()
         self.task_panel.render_tasks(category)
 
         if category:
-            self.main_window.update_title(category['name'])
+            self.main_window.update_title(category.name)
         else:
             self.main_window.update_title("Select a category")
 
@@ -292,26 +281,22 @@ class ChecklistApp:
             self.clear_search()
             return
 
-        # Search across current category only for now
         results = TaskSearcher.search_tasks(
-            self.data['categories'],
+            self.checklist.categories,
             query,
-            category_id=self.data['current_category']
+            category_id=self.checklist.current_category_id
         )
 
         self.search_results = results
 
-        # Update title to show search mode
-        category = self.get_current_category()
-        cat_name = category['name'] if category else "Tasks"
+        category = self.checklist.get_current_category()
+        cat_name = category.name if category else "Tasks"
         self.main_window.update_title(f"🔍 Search in {cat_name}: {len(results)} result(s)")
 
-        # Render search results
         self._render_search_results(results, query)
 
     def _render_search_results(self, results, query):
         """Render search results in task panel"""
-        # Clear existing widgets
         for widget in self.task_panel.task_frame.winfo_children():
             widget.destroy()
 
@@ -324,87 +309,72 @@ class ChecklistApp:
             empty.pack(pady=50)
             return
 
-        # Render each matching task using the original task index from the category
-        # so that toggle/delete/edit callbacks operate on the correct task
         for result in results:
             self.task_panel._render_task(result['task_idx'], result['task'])
 
     def clear_search(self):
         """Clear search and show normal task list (Feature #2)"""
         self.search_results = None
-        category = self.get_current_category()
+        category = self.checklist.get_current_category()
         self.task_panel.render_tasks(category)
 
         if category:
-            self.main_window.update_title(category['name'])
+            self.main_window.update_title(category.name)
         else:
             self.main_window.update_title("Select a category")
 
     def sort_tasks(self, sort_by):
         """Sort tasks in current category (Feature #9)"""
-        category = self.get_current_category()
-        if not category or not category['tasks']:
+        category = self.checklist.get_current_category()
+        if not category or not category.tasks:
             return
 
         self.record_state(f"Sort tasks by {sort_by}")
 
         if sort_by == 'smart':
-            TaskSorter.sort_smart(category['tasks'])
+            TaskSorter.sort_smart(category.tasks)
         else:
-            TaskSorter.sort_tasks(category['tasks'], sort_by)
+            TaskSorter.sort_tasks(category.tasks, sort_by)
 
         self.save_data()
         self.render_tasks()
 
-    def get_current_category(self):
-        """Get the currently selected category"""
-        for cat in self.data['categories']:
-            if cat['id'] == self.data['current_category']:
-                return cat
-        return None
-
     def switch_category(self, cat_id):
         """Switch to a different category"""
-        self.data['current_category'] = cat_id
-        self.sidebar.render_categories(self.data['categories'],
-                                       self.data['current_category'])
+        self.checklist.current_category_id = cat_id
+        self.sidebar.render_categories(self.checklist.categories,
+                                       self.checklist.current_category_id)
         self.render_tasks()
 
     def switch_category_by_index(self, idx):
         """Switch category by index (for Ctrl+number shortcuts)"""
-        if self.data['categories'] and 0 <= idx < len(self.data['categories']):
-            self.switch_category(self.data['categories'][idx]['id'])
+        cat = self.checklist.get_category_by_index(idx)
+        if cat:
+            self.switch_category(cat.id)
 
     def reorder_categories(self, from_idx, to_idx):
         """Reorder categories via drag-and-drop"""
         self.record_state("Reorder categories")
-        category = self.data['categories'].pop(from_idx)
-        self.data['categories'].insert(to_idx, category)
+        self.checklist.reorder_categories(from_idx, to_idx)
         self.save_data()
-        self.sidebar.render_categories(self.data['categories'],
-                                       self.data['current_category'])
+        self.sidebar.render_categories(self.checklist.categories,
+                                       self.checklist.current_category_id)
 
     def add_category_dialog(self):
         """Show dialog to add new category"""
         def on_add(name):
             self.record_state("Add category")
-            new_id = max([c['id'] for c in self.data['categories']], default=0) + 1
-            self.data['categories'].append({
-                'id': new_id,
-                'name': name,
-                'tasks': []
-            })
-            self.data['current_category'] = new_id
+            new_id = self.checklist.get_next_category_id()
+            self.checklist.add_category(Category(new_id, name))
+            self.checklist.current_category_id = new_id
             self.save_data()
-            self.sidebar.render_categories(self.data['categories'],
-                                           self.data['current_category'])
-            self.render_tasks()
+            self.refresh_ui()
 
         AddCategoryDialog(self.root, on_add)
 
     def delete_category(self, cat_id):
         """Delete a category"""
-        if len(self.data['categories']) == 1:
+        if self.checklist.get_category_count() == 1:
             messagebox.showwarning("Cannot Delete",
                                   "Cannot delete the last category!")
             return
@@ -412,31 +382,24 @@ class ChecklistApp:
         if messagebox.askyesno("Delete Category",
                               "Delete this category and all its tasks?"):
             self.record_state("Delete category")
-            self.data['categories'] = [c for c in self.data['categories']
-                                      if c['id'] != cat_id]
-            if self.data['current_category'] == cat_id:
-                # Bug #5 fix: Add safety check before accessing [0]
-                if self.data['categories']:
-                    self.data['current_category'] = self.data['categories'][0]['id']
+            self.checklist.remove_category(cat_id)
+            if self.checklist.current_category_id == cat_id:
+                if self.checklist.categories:
+                    self.checklist.current_category_id = self.checklist.categories[0].id
                 else:
-                    self.data['current_category'] = None
+                    self.checklist.current_category_id = None
             self.save_data()
-            self.sidebar.render_categories(self.data['categories'],
-                                           self.data['current_category'])
-            self.render_tasks()
+            self.refresh_ui()
 
     def edit_category_dialog(self, cat_id, current_name):
         """Show dialog to edit category name"""
         def on_save(new_name):
             self.record_state("Edit category name")
-            for cat in self.data['categories']:
-                if cat['id'] == cat_id:
-                    cat['name'] = new_name
-                    break
+            cat = self.checklist.get_category(cat_id)
+            if cat:
+                cat.name = new_name
             self.save_data()
-            self.sidebar.render_categories(self.data['categories'],
-                                           self.data['current_category'])
-            self.render_tasks()
+            self.refresh_ui()
 
         EditCategoryDialog(self.root, current_name, on_save)
 
@@ -446,68 +409,58 @@ class ChecklistApp:
         if not text:
             return
 
-        category = self.get_current_category()
+        category = self.checklist.get_current_category()
         if category:
             self.record_state("Add task")
-            category['tasks'].append({
-                'text': text,
-                'notes': [],
-                'subtasks': [],
-                'completed': False,
-                'created': datetime.now().isoformat(),
-                'priority': 'medium',
-                'due_date': None,
-                'reminder': None
-            })
+            category.add_task(Task(text))
             self.save_data()
             self.render_tasks()
-            self.sidebar.render_categories(self.data['categories'],
-                                           self.data['current_category'])
+            self.sidebar.render_categories(self.checklist.categories,
+                                           self.checklist.current_category_id)
             self.input_area.clear()
 
     def toggle_task(self, idx):
         """Toggle task completion status"""
-        category = self.get_current_category()
-        if category and idx < len(category['tasks']):
+        category = self.checklist.get_current_category()
+        if category and idx < len(category.tasks):
             self.record_state("Toggle task")
-            category['tasks'][idx]['completed'] = not category['tasks'][idx]['completed']
+            category.tasks[idx].toggle_completion()
             self.save_data()
             self.render_tasks()
 
     def delete_task(self, idx):
         """Delete a task"""
-        category = self.get_current_category()
-        if category and idx < len(category['tasks']):
+        category = self.checklist.get_current_category()
+        if category and idx < len(category.tasks):
             if messagebox.askyesno("Delete Task", "Delete this task?"):
                 self.record_state("Delete task")
-                del category['tasks'][idx]
+                category.remove_task(idx)
                 self.save_data()
                 self.render_tasks()
-                self.sidebar.render_categories(self.data['categories'],
-                                               self.data['current_category'])
+                self.sidebar.render_categories(self.checklist.categories,
+                                               self.checklist.current_category_id)
 
     def edit_task_dialog(self, task_idx):
         """Show dialog to edit a task's text, priority, and due date"""
-        category = self.get_current_category()
-        if not category or task_idx >= len(category['tasks']):
+        category = self.checklist.get_current_category()
+        if not category or task_idx >= len(category.tasks):
             return
 
-        task = category['tasks'][task_idx]
-        current_text = task['text']
-        current_priority = task.get('priority', 'medium')
-        current_due_date = task.get('due_date')
+        task = category.tasks[task_idx]
+        current_text = task.text
+        current_priority = task.priority
+        current_due_date = task.due_date
 
         def on_save(new_text, priority=None, due_date=None):
             self.record_state("Edit task")
-            task['text'] = new_text
+            task.text = new_text
             if priority is not None:
-                task['priority'] = priority
-            if due_date is not None or 'due_date' in task:
-                task['due_date'] = due_date
+                task.priority = priority
+            if due_date is not None or task.due_date is not None:
+                task.due_date = due_date
             self.save_data()
             self.render_tasks()
 
-        # Show dialog with priority/due date options
         EditTaskDialog(self.root, current_text, on_save,
                       current_priority=current_priority,
                       current_due_date=current_due_date,
@@ -515,11 +468,11 @@ class ChecklistApp:
 
     def clear_completed(self):
         """Clear all completed tasks"""
-        category = self.get_current_category()
+        category = self.checklist.get_current_category()
         if not category:
             return
 
-        completed = [t for t in category['tasks'] if t['completed']]
+        completed = category.get_completed_tasks()
         if not completed:
             messagebox.showinfo("No Tasks", "No completed tasks to clear!")
             return
@@ -527,24 +480,19 @@ class ChecklistApp:
         if messagebox.askyesno("Clear Completed",
                               f"Clear {len(completed)} completed task(s)?"):
             self.record_state("Clear completed tasks")
-            category['tasks'] = [t for t in category['tasks'] if not t['completed']]
+            category.clear_completed()
             self.save_data()
             self.render_tasks()
-            self.sidebar.render_categories(self.data['categories'],
-                                           self.data['current_category'])
+            self.sidebar.render_categories(self.checklist.categories,
+                                           self.checklist.current_category_id)
 
     def add_subtask_dialog(self, task_idx):
         """Show dialog to add a sub-task"""
         def on_add(text):
-            category = self.get_current_category()
-            if category and task_idx < len(category['tasks']):
+            category = self.checklist.get_current_category()
+            if category and task_idx < len(category.tasks):
                 self.record_state("Add subtask")
-                if 'subtasks' not in category['tasks'][task_idx]:
-                    category['tasks'][task_idx]['subtasks'] = []
-                category['tasks'][task_idx]['subtasks'].append({
-                    'text': text,
-                    'completed': False
-                })
+                category.tasks[task_idx].add_subtask(Subtask(text))
                 self.save_data()
                 self.render_tasks()
 
@@ -552,42 +500,42 @@ class ChecklistApp:
 
     def toggle_subtask(self, task_idx, subtask_idx):
         """Toggle sub-task completion status"""
-        category = self.get_current_category()
-        if category and task_idx < len(category['tasks']):
-            task = category['tasks'][task_idx]
-            if 'subtasks' in task and subtask_idx < len(task['subtasks']):
+        category = self.checklist.get_current_category()
+        if category and task_idx < len(category.tasks):
+            task = category.tasks[task_idx]
+            if subtask_idx < len(task.subtasks):
                 self.record_state("Toggle subtask")
-                task['subtasks'][subtask_idx]['completed'] = not task['subtasks'][subtask_idx]['completed']
+                task.subtasks[subtask_idx].toggle_completion()
                 self.save_data()
                 self.render_tasks()
 
     def delete_subtask(self, task_idx, subtask_idx):
         """Delete a sub-task"""
-        category = self.get_current_category()
-        if category and task_idx < len(category['tasks']):
-            task = category['tasks'][task_idx]
-            if 'subtasks' in task and subtask_idx < len(task['subtasks']):
+        category = self.checklist.get_current_category()
+        if category and task_idx < len(category.tasks):
+            task = category.tasks[task_idx]
+            if subtask_idx < len(task.subtasks):
                 if messagebox.askyesno("Delete Sub-task", "Delete this sub-task?"):
                     self.record_state("Delete subtask")
-                    del task['subtasks'][subtask_idx]
+                    task.remove_subtask(subtask_idx)
                     self.save_data()
                     self.render_tasks()
 
     def edit_subtask_dialog(self, task_idx, subtask_idx):
         """Show dialog to edit a subtask's text"""
-        category = self.get_current_category()
-        if not category or task_idx >= len(category['tasks']):
+        category = self.checklist.get_current_category()
+        if not category or task_idx >= len(category.tasks):
             return
 
-        task = category['tasks'][task_idx]
-        if 'subtasks' not in task or subtask_idx >= len(task['subtasks']):
+        task = category.tasks[task_idx]
+        if subtask_idx >= len(task.subtasks):
             return
 
-        current_text = task['subtasks'][subtask_idx]['text']
+        current_text = task.subtasks[subtask_idx].text
 
         def on_save(new_text):
             self.record_state("Edit subtask")
-            task['subtasks'][subtask_idx]['text'] = new_text
+            task.subtasks[subtask_idx].text = new_text
             self.save_data()
             self.render_tasks()
 
@@ -595,49 +543,45 @@ class ChecklistApp:
 
     def set_reminder_dialog(self, task_idx):
         """Show dialog to set a reminder for a task"""
-        category = self.get_current_category()
-        if not category or task_idx >= len(category['tasks']):
+        category = self.checklist.get_current_category()
+        if not category or task_idx >= len(category.tasks):
             return
 
-        task = category['tasks'][task_idx]
-        current_reminder = task.get('reminder')
+        task = category.tasks[task_idx]
 
         def on_set(reminder_iso):
             self.record_state("Set reminder")
-            task['reminder'] = reminder_iso
+            task.reminder = reminder_iso
             self.save_data()
             self.render_tasks()
 
-        ReminderDialog(self.root, task['text'], on_set, current_reminder)
+        ReminderDialog(self.root, task.text, on_set, task.reminder)
 
     def check_reminders(self):
         """Check for due reminders and show notifications"""
         now = datetime.now()
         reminders_triggered = []
-
         corrupted_reminders = []
-        for category in self.data.get('categories', []):
-            for task in category.get('tasks', []):
-                reminder = task.get('reminder')
-                if reminder:
+
+        for category in self.checklist.categories:
+            for task in category.tasks:
+                if task.reminder:
                     try:
-                        reminder_time = datetime.fromisoformat(reminder)
+                        reminder_time = datetime.fromisoformat(task.reminder)
                         if reminder_time <= now:
                             reminders_triggered.append({
-                                'category': category['name'],
-                                'task': task['text'],
+                                'category': category.name,
+                                'task': task.text,
                                 'task_obj': task
                             })
                     except ValueError:
-                        # Bug #8 fix: Clear corrupted reminder data instead of silently ignoring
                         corrupted_reminders.append(task)
 
         # Clear any corrupted reminders
         for task in corrupted_reminders:
-            task['reminder'] = None
+            task.reminder = None
 
         # Show notifications for triggered reminders
-        # Bug #2 fix: Clear reminder in try-finally to ensure it's cleared even if notification fails
         for reminder_info in reminders_triggered:
             try:
                 self.show_notification(
@@ -645,8 +589,7 @@ class ChecklistApp:
                     message=reminder_info['task'][:100]
                 )
             finally:
-                # Clear the reminder regardless of notification success/failure
-                reminder_info['task_obj']['reminder'] = None
+                reminder_info['task_obj'].reminder = None
 
         if reminders_triggered or corrupted_reminders:
             self.save_data()
@@ -669,12 +612,10 @@ class ChecklistApp:
             except Exception:
                 pass
 
-        # Fallback: Show a tkinter message box
-        # Use after to prevent blocking
         self.root.after(0, lambda: messagebox.showinfo(title, message))
 
     def export_markdown(self):
-        """Export all tasks to Markdown file with timestamps"""
+        """Export all tasks to Markdown file using MarkdownExporter"""
         filename = filedialog.asksaveasfilename(
             defaultextension=".md",
             filetypes=[("Markdown files", "*.md"), ("All files", "*.*")],
@@ -684,170 +625,59 @@ class ChecklistApp:
         if not filename:
             return
 
-        # Add timestamp header
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        markdown = f"# Checklist Export\n\n**Exported:** {timestamp}\n"
-        markdown += f"**File:** {os.path.basename(self.data_file)}\n\n---\n\n"
-
-        for category in self.data['categories']:
-            markdown += f"## {category['name']}\n\n"
-
-            if not category['tasks']:
-                markdown += "_No tasks_\n\n"
-            else:
-                for task in category['tasks']:
-                    checkbox = '[x]' if task['completed'] else '[ ]'
-                    markdown += f"- {checkbox} {task['text']}\n"
-
-                    # Export sub-tasks
-                    if task.get('subtasks'):
-                        for subtask in task['subtasks']:
-                            sub_checkbox = '[x]' if subtask['completed'] else '[ ]'
-                            markdown += f"  - {sub_checkbox} {subtask['text']}\n"
-
-                    # Export notes
-                    if task.get('notes'):
-                        for note in task['notes']:
-                            markdown += f"    - {note}\n"
-
-                markdown += "\n"
-
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write(markdown)
+        exporter = MarkdownExporter(self.checklist, self.storage.get_file_path())
+        if exporter.export_to_file(filename):
             messagebox.showinfo("Export Complete",
                                f"Tasks exported to:\n{filename}")
-        except (IOError, OSError) as e:
-            messagebox.showerror("Export Failed",
-                                f"Failed to export checklist:\n{str(e)}")
+        else:
+            messagebox.showerror("Export Failed", "Failed to export checklist.")
 
     def save_data(self):
-        """Save data to JSON file"""
-        try:
-            with open(self.data_file, 'w', encoding='utf-8') as f:
-                json.dump(self.data, f, indent=2, ensure_ascii=False)
-        except (IOError, OSError) as e:
-            messagebox.showerror("Error Saving Data",
-                                f"Failed to save checklist:\n{str(e)}")
+        """Save data via ChecklistStorage"""
+        if not self.storage.save_checklist(self.checklist):
+            messagebox.showerror("Error Saving Data", "Failed to save checklist.")
 
     def load_data(self):
-        """Load data from JSON file"""
-        if os.path.exists(self.data_file):
-            # Bug #12 fix: Create backup before loading in case file is corrupted
-            backup_file = self.data_file + '.backup'
-            try:
-                # Only create backup if file exists and is non-empty
-                if os.path.getsize(self.data_file) > 0:
-                    import shutil
-                    shutil.copy2(self.data_file, backup_file)
-            except (IOError, OSError):
-                pass  # Backup creation is best-effort
+        """Load data from JSON file with backup/recovery"""
+        if not self.storage.file_exists():
+            return
 
-            try:
-                with open(self.data_file, 'r', encoding='utf-8') as f:
-                    self.data = json.load(f)
-                # Migrate old data to ensure consistency
-                self.migrate_data()
-            except (json.JSONDecodeError, IOError, OSError, KeyError) as e:
-                # Bug #12 fix: Try to recover from backup
-                recovered = False
-                if os.path.exists(backup_file):
-                    try:
-                        with open(backup_file, 'r', encoding='utf-8') as f:
-                            self.data = json.load(f)
-                        self.migrate_data()
+        # Create backup before loading in case file is corrupted
+        backup_file = self.storage.get_file_path() + '.backup'
+        try:
+            file_path = self.storage.get_file_path()
+            if os.path.getsize(file_path) > 0:
+                shutil.copy2(file_path, backup_file)
+        except (IOError, OSError):
+            pass  # Backup creation is best-effort
+
+        checklist = self.storage.load_checklist()
+        if checklist:
+            self.checklist = checklist
+        else:
+            # Try to recover from backup
+            recovered = False
+            if os.path.exists(backup_file):
+                try:
+                    original_path = self.storage.get_file_path()
+                    self.storage.set_file_path(backup_file)
+                    checklist = self.storage.load_checklist()
+                    self.storage.set_file_path(original_path)
+                    if checklist:
+                        self.checklist = checklist
                         recovered = True
                         messagebox.showwarning("Data Recovery",
-                                              f"Original file was corrupted:\n{str(e)}\n\n"
+                                              "Original file was corrupted.\n\n"
                                               "Data has been restored from backup.")
-                    except (json.JSONDecodeError, IOError, OSError, KeyError):
-                        pass  # Backup also corrupted
+                except Exception:
+                    pass
 
-                if not recovered:
-                    messagebox.showerror("Error Loading Data",
-                                        f"Failed to load checklist data:\n{str(e)}\n\n"
-                                        f"Starting with default categories.\n"
-                                        f"A backup may exist at: {backup_file}")
-                    self.data = {'categories': [], 'current_category': None}
-
-    def migrate_data(self):
-        """Migrate old data structures to current format and validate required fields"""
-        categories = self.data.get('categories', [])
-        valid_categories = []
-
-        for category in categories:
-            # Validate category has required fields
-            if 'id' not in category:
-                continue  # Skip malformed categories
-            if 'name' not in category:
-                category['name'] = f"Category {category['id']}"  # Provide default name
-            if 'tasks' not in category:
-                category['tasks'] = []
-
-            # Validate and clean tasks
-            valid_tasks = []
-            for task in category.get('tasks', []):
-                # Skip tasks without text (required field)
-                if 'text' not in task or not task['text']:
-                    continue
-
-                # Ensure required fields have defaults
-                if 'completed' not in task:
-                    task['completed'] = False
-
-                # Ensure all subtasks have 'completed' key
-                if 'subtasks' in task:
-                    valid_subtasks = []
-                    for subtask in task['subtasks']:
-                        # Skip subtasks without text
-                        if 'text' not in subtask or not subtask['text']:
-                            continue
-                        if 'completed' not in subtask:
-                            subtask['completed'] = False
-                        valid_subtasks.append(subtask)
-                    task['subtasks'] = valid_subtasks
-
-                valid_tasks.append(task)
-
-            category['tasks'] = valid_tasks
-            valid_categories.append(category)
-
-        self.data['categories'] = valid_categories
-
-    def save_settings(self):
-        """Save settings to JSON file"""
-        try:
-            with open(self.settings_file, 'w', encoding='utf-8') as f:
-                json.dump(self.settings, f, indent=2, ensure_ascii=False)
-        except (IOError, OSError) as e:
-            messagebox.showerror("Error Saving Settings",
-                                f"Failed to save settings:\n{str(e)}")
-
-    def load_settings(self):
-        """Load settings from JSON file"""
-        if os.path.exists(self.settings_file):
-            try:
-                with open(self.settings_file, 'r', encoding='utf-8') as f:
-                    loaded = json.load(f)
-                    self.settings.update(loaded)
-            except (json.JSONDecodeError, IOError, OSError):
-                # If settings fail to load, use defaults silently
-                # Settings are non-critical, so don't show error to user
-                pass
-        # Bug #3 fix: Clean up non-existent files from recent files list
-        self.cleanup_recent_files()
-
-    def cleanup_recent_files(self):
-        """Remove non-existent files from recent files list"""
-        if 'recent_files' in self.settings:
-            original_count = len(self.settings['recent_files'])
-            self.settings['recent_files'] = [
-                f for f in self.settings['recent_files']
-                if os.path.exists(f)
-            ]
-            # Save if any files were removed
-            if len(self.settings['recent_files']) < original_count:
-                self.save_settings()
+            if not recovered:
+                messagebox.showerror("Error Loading Data",
+                                    "Failed to load checklist data.\n\n"
+                                    "Starting with default categories.\n"
+                                    f"A backup may exist at: {backup_file}")
+                self.checklist = Checklist()
 
     def new_checklist(self):
         """Create a new checklist"""
@@ -858,20 +688,17 @@ class ChecklistApp:
         )
 
         if not filename:
-            return  # User cancelled, don't clear data
+            return
 
-        # Only ask to save after we know user didn't cancel
         if messagebox.askyesno("New Checklist",
                               "Save current checklist before creating new?"):
             self.save_data()
 
-        self.data_file = filename
-        self.data = {'categories': [], 'current_category': None}
+        self.storage.set_file_path(filename)
+        self.checklist = Checklist()
         self.init_default_categories()
         self.add_to_recent_files(filename)
-        self.sidebar.render_categories(self.data['categories'],
-                                       self.data['current_category'])
-        self.render_tasks()
+        self.refresh_ui()
         self.main_window.update_window_title(filename)
 
     def open_checklist(self):
@@ -885,61 +712,48 @@ class ChecklistApp:
 
     def load_checklist_file(self, filename):
         """Load a specific checklist file"""
-        # Keep backup of current data in case load fails
-        backup_data = copy.deepcopy(self.data)
-        backup_file = self.data_file
+        # Keep backup of current state in case load fails
+        backup_checklist = copy.deepcopy(self.checklist)
+        backup_file_path = self.storage.get_file_path()
 
         try:
-            with open(filename, 'r', encoding='utf-8') as f:
-                loaded_data = json.load(f)
+            self.storage.set_file_path(filename)
+            checklist = self.storage.load_checklist()
 
-            # Validate the data structure
-            if not isinstance(loaded_data, dict):
-                raise ValueError("Invalid checklist format: root must be an object")
+            if checklist is None:
+                raise ValueError("Failed to parse checklist file")
 
-            if 'categories' not in loaded_data:
-                raise ValueError("Invalid checklist format: missing 'categories' field")
-
-            if not isinstance(loaded_data['categories'], list):
-                raise ValueError("Invalid checklist format: 'categories' must be a list")
-
-            # Ensure current_category exists and is valid
-            if 'current_category' not in loaded_data or loaded_data['current_category'] is None:
-                if loaded_data['categories']:
-                    loaded_data['current_category'] = loaded_data['categories'][0].get('id', 1)
+            # Ensure current_category_id is valid
+            if checklist.current_category_id is None or \
+               checklist.get_category(checklist.current_category_id) is None:
+                if checklist.categories:
+                    checklist.current_category_id = checklist.categories[0].id
                 else:
-                    loaded_data['current_category'] = None
+                    checklist.current_category_id = None
 
-            self.data = loaded_data
-            self.data_file = filename
-            self.migrate_data()  # Ensure data consistency
+            self.checklist = checklist
             self.add_to_recent_files(filename)
-            self.sidebar.render_categories(self.data['categories'],
-                                           self.data['current_category'])
-            self.render_tasks()
+            self.refresh_ui()
             self.main_window.update_window_title(filename)
 
-        except (json.JSONDecodeError, IOError, OSError, ValueError) as e:
+        except Exception as e:
             # Restore previous state on error
-            self.data = backup_data
-            self.data_file = backup_file
+            self.checklist = backup_checklist
+            self.storage.set_file_path(backup_file_path)
             messagebox.showerror("Error",
                                 f"Failed to load checklist:\n{str(e)}\n\nPrevious checklist has been restored.")
-            # Re-render to ensure UI matches restored state
-            self.sidebar.render_categories(self.data['categories'],
-                                           self.data['current_category'])
-            self.render_tasks()
+            self.refresh_ui()
 
     def save_checklist_as(self):
         """Save checklist to a new file"""
         filename = filedialog.asksaveasfilename(
             defaultextension=".json",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            initialfile=os.path.basename(self.data_file)
+            initialfile=os.path.basename(self.storage.get_file_path())
         )
 
         if filename:
-            self.data_file = filename
+            self.storage.set_file_path(filename)
             self.save_data()
             self.add_to_recent_files(filename)
             self.main_window.update_window_title(filename)
@@ -947,29 +761,23 @@ class ChecklistApp:
 
     def add_to_recent_files(self, filename):
         """Add file to recent files list"""
-        if filename in self.settings['recent_files']:
-            self.settings['recent_files'].remove(filename)
-        self.settings['recent_files'].insert(0, filename)
-        self.settings['recent_files'] = self.settings['recent_files'][:10]
-        self.save_settings()
+        self.settings_mgr.add_recent_file(filename)
         self.main_window.update_recent_menu()
 
     def clear_recent_files(self):
         """Clear the recent files list"""
-        self.settings['recent_files'] = []
-        self.save_settings()
+        self.settings_mgr.clear_recent_files()
 
     def change_input_color(self):
         """Change the color of the input box"""
         color = colorchooser.askcolor(
             title="Choose Input Box Color",
-            initialcolor=self.settings['input_bg_color']
+            initialcolor=self.settings_mgr.get_input_bg_color()
         )
 
-        if color[1]:  # color[1] is the hex color string
-            self.settings['input_bg_color'] = color[1]
+        if color[1]:
+            self.settings_mgr.set_input_bg_color(color[1])
             self.input_area.set_bg_color(color[1])
-            self.save_settings()
 
 
 def main():

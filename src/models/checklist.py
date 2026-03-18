@@ -158,7 +158,7 @@ class Checklist:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Checklist':
         """
-        Create a Checklist from a dictionary
+        Create a Checklist from a dictionary with data migration/validation
 
         Args:
             data: Dictionary containing checklist data
@@ -167,13 +167,48 @@ class Checklist:
             New Checklist instance
         """
         categories = []
-        if 'categories' in data:
-            categories = [Category.from_dict(cat_data) for cat_data in data['categories']]
+        for cat_data in data.get('categories', []):
+            # Validate category has required fields
+            if 'id' not in cat_data:
+                continue
+            if 'name' not in cat_data:
+                cat_data['name'] = f"Category {cat_data['id']}"
+            if 'tasks' not in cat_data:
+                cat_data['tasks'] = []
 
-        return cls(
-            categories=categories,
-            current_category_id=data.get('current_category')
-        )
+            # Validate and clean tasks
+            valid_tasks = []
+            for task_data in cat_data.get('tasks', []):
+                if 'text' not in task_data or not task_data['text']:
+                    continue
+                if 'completed' not in task_data:
+                    task_data['completed'] = False
+                # Validate subtasks
+                if 'subtasks' in task_data:
+                    valid_subtasks = []
+                    for st_data in task_data['subtasks']:
+                        if 'text' not in st_data or not st_data['text']:
+                            continue
+                        if 'completed' not in st_data:
+                            st_data['completed'] = False
+                        valid_subtasks.append(st_data)
+                    task_data['subtasks'] = valid_subtasks
+                valid_tasks.append(task_data)
+
+            cat_data['tasks'] = valid_tasks
+            categories.append(Category.from_dict(cat_data))
+
+        current_id = data.get('current_category')
+        checklist = cls(categories=categories, current_category_id=current_id)
+
+        # Ensure current_category_id is valid
+        if current_id is not None and checklist.get_category(current_id) is None:
+            if checklist.categories:
+                checklist.current_category_id = checklist.categories[0].id
+            else:
+                checklist.current_category_id = None
+
+        return checklist
 
     def __repr__(self) -> str:
         total_tasks = self.get_total_task_count()
