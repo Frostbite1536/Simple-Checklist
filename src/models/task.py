@@ -6,6 +6,8 @@ Pure business logic with no UI dependencies
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
+VALID_PRIORITIES = ('low', 'medium', 'high')
+
 
 class Subtask:
     """Represents a sub-task within a task"""
@@ -17,8 +19,13 @@ class Subtask:
         Args:
             text: The subtask text
             completed: Whether the subtask is completed
+
+        Raises:
+            ValueError: If text is empty or whitespace-only
         """
-        self.text = text
+        if not text or not text.strip():
+            raise ValueError("Subtask text cannot be empty or whitespace-only")
+        self.text = text.strip()
         self.completed = completed
 
     def toggle_completion(self) -> None:
@@ -85,7 +92,11 @@ class Task:
             due_date: Due date in YYYY-MM-DD format
             reminder: Reminder datetime in ISO format
         """
-        self.text = text
+        if not text or not text.strip():
+            raise ValueError("Task text cannot be empty or whitespace-only")
+        if priority not in VALID_PRIORITIES:
+            raise ValueError(f"Priority must be one of {VALID_PRIORITIES}, got '{priority}'")
+        self.text = text.strip()
         self.completed = completed
         self.notes = notes or []
         self.subtasks = subtasks or []
@@ -197,13 +208,16 @@ class Task:
                 if isinstance(st, dict) and st.get('text'):
                     subtasks.append(Subtask.from_dict(st))
 
+        raw_priority = data.get('priority', 'medium')
+        priority = raw_priority if raw_priority in VALID_PRIORITIES else 'medium'
+
         return cls(
-            text=data.get('text', ''),  # Default to empty string if missing
+            text=data.get('text', 'Untitled'),
             completed=data.get('completed', False),
             notes=list(data.get('notes', [])),
             subtasks=subtasks,
             created=data.get('created'),
-            priority=data.get('priority', 'medium'),
+            priority=priority,
             due_date=data.get('due_date'),
             reminder=data.get('reminder')
         )

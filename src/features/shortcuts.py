@@ -102,8 +102,10 @@ class ShortcutManager:
         for key_sequence in self.bindings.keys():
             try:
                 self.root_widget.unbind(key_sequence)
-            except Exception:
-                pass
+            except Exception as e:
+                # Only re-raise if it's not a TclError (widget cleanup)
+                if type(e).__name__ != 'TclError':
+                    raise
 
     def set_root_widget(self, widget: Any) -> None:
         """

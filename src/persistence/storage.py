@@ -3,13 +3,17 @@ Storage management for checklists
 Handles JSON file operations for saving and loading checklists
 """
 
+import fcntl
 import json
+import logging
 import os
 from typing import Optional
 from datetime import datetime
 
 from ..models.checklist import Checklist
 from ..utils.constants import Paths, Defaults
+
+logger = logging.getLogger(__name__)
 
 
 class ChecklistStorage:
@@ -36,11 +40,16 @@ class ChecklistStorage:
         """
         try:
             data = checklist.to_dict()
+            os.makedirs(os.path.dirname(os.path.abspath(self.file_path)), exist_ok=True)
             with open(self.file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
+                fcntl.flock(f, fcntl.LOCK_EX)
+                try:
+                    json.dump(data, f, indent=2)
+                finally:
+                    fcntl.flock(f, fcntl.LOCK_UN)
             return True
         except Exception as e:
-            print(f"Error saving checklist: {e}")
+            logger.warning("Error saving checklist: %s", e)
             return False
 
     def load_checklist(self) -> Optional[Checklist]:
@@ -58,7 +67,7 @@ class ChecklistStorage:
                 data = json.load(f)
             return Checklist.from_dict(data)
         except Exception as e:
-            print(f"Error loading checklist: {e}")
+            logger.warning("Error loading checklist: %s", e)
             return None
 
     def file_exists(self) -> bool:
@@ -133,6 +142,7 @@ class ChecklistStorage:
                 backup_suffix = f"backup_{timestamp}"
 
             backup_path = f"{self.file_path}.{backup_suffix}"
+            os.makedirs(os.path.dirname(os.path.abspath(backup_path)), exist_ok=True)
 
             with open(self.file_path, 'r', encoding='utf-8') as src:
                 data = src.read()
@@ -142,7 +152,7 @@ class ChecklistStorage:
 
             return True
         except Exception as e:
-            print(f"Error creating backup: {e}")
+            logger.warning("Error creating backup: %s", e)
             return False
 
     def get_file_size(self) -> int:

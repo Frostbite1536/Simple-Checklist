@@ -53,6 +53,19 @@ class TestSubtask(unittest.TestCase):
         self.assertTrue(st.completed)
 
 
+    def test_subtask_empty_text_raises(self):
+        """Test creating subtask with empty text raises ValueError"""
+        with self.assertRaises(ValueError):
+            Subtask("")
+        with self.assertRaises(ValueError):
+            Subtask("   ")
+
+    def test_subtask_text_stripped(self):
+        """Test subtask text is stripped of whitespace"""
+        st = Subtask("  Buy milk  ")
+        self.assertEqual(st.text, "Buy milk")
+
+
 class TestTask(unittest.TestCase):
     """Tests for Task class"""
 
@@ -164,6 +177,25 @@ class TestTask(unittest.TestCase):
         self.assertEqual(len(task.notes), 1)
         self.assertEqual(task.get_subtask_count(), 1)
 
+    def test_task_empty_text_raises(self):
+        """Test creating task with empty text raises ValueError"""
+        with self.assertRaises(ValueError):
+            Task("")
+        with self.assertRaises(ValueError):
+            Task("   ")
+
+    def test_task_text_stripped(self):
+        """Test task text is stripped of whitespace"""
+        task = Task("  Complete project  ")
+        self.assertEqual(task.text, "Complete project")
+
+    def test_invalid_priority_raises(self):
+        """Test invalid priority raises ValueError"""
+        with self.assertRaises(ValueError):
+            Task("Test", priority='banana')
+        with self.assertRaises(ValueError):
+            Task("Test", priority='')
+
     def test_default_priority(self):
         """Test default priority value"""
         task = Task("Test")
@@ -238,6 +270,12 @@ class TestTask(unittest.TestCase):
         self.assertEqual(task.notes, [])
         self.assertEqual(task.subtasks, [])
 
+    def test_from_dict_clamps_invalid_priority(self):
+        """Test from_dict clamps invalid priority to 'medium'"""
+        data = {'text': 'Test', 'priority': 'banana'}
+        task = Task.from_dict(data)
+        self.assertEqual(task.priority, 'medium')
+
     def test_from_dict_skips_malformed_subtasks(self):
         """Test from_dict skips malformed subtask entries"""
         data = {
@@ -273,6 +311,18 @@ class TestCategory(unittest.TestCase):
         self.assertEqual(cat.id, 1)
         self.assertEqual(cat.name, "Work")
         self.assertEqual(len(cat.tasks), 0)
+
+    def test_category_empty_name_raises(self):
+        """Test creating category with empty name raises ValueError"""
+        with self.assertRaises(ValueError):
+            Category(1, "")
+        with self.assertRaises(ValueError):
+            Category(1, "   ")
+
+    def test_category_name_stripped(self):
+        """Test category name is stripped of whitespace"""
+        cat = Category(1, "  Work  ")
+        self.assertEqual(cat.name, "Work")
 
     def test_add_task(self):
         """Test adding tasks"""

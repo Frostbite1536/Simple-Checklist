@@ -27,17 +27,18 @@ class TaskSorter:
             return tasks
 
         if sort_by == 'created':
-            tasks.sort(key=lambda t: t.created or '', reverse=reverse)
+            tasks.sort(key=lambda t: (t.created or '') if t.created else '', reverse=reverse)
 
         elif sort_by == 'due_date':
             tasks.sort(
-                key=lambda t: t.due_date or '9999-12-31',
+                key=lambda t: t.due_date if t.due_date else '9999-12-31',
                 reverse=reverse
             )
 
         elif sort_by == 'priority':
             tasks.sort(
-                key=lambda t: TaskSorter.PRIORITY_ORDER.get(t.priority, 1),
+                key=lambda t: TaskSorter.PRIORITY_ORDER.get(
+                    t.priority if t.priority else 'medium', 1),
                 reverse=reverse
             )
 
@@ -45,7 +46,7 @@ class TaskSorter:
             tasks.sort(key=lambda t: t.completed, reverse=reverse)
 
         elif sort_by == 'a-z':
-            tasks.sort(key=lambda t: t.text.lower(), reverse=reverse)
+            tasks.sort(key=lambda t: (t.text or '').lower(), reverse=reverse)
 
         return tasks
 
@@ -65,8 +66,9 @@ class TaskSorter:
 
         def smart_key(task):
             completed = 1 if task.completed else 0
-            priority = TaskSorter.PRIORITY_ORDER.get(task.priority, 1)
-            due_date = task.due_date or '9999-12-31'
+            priority = TaskSorter.PRIORITY_ORDER.get(
+                task.priority if task.priority else 'medium', 1)
+            due_date = task.due_date if task.due_date else '9999-12-31'
             return (completed, priority, due_date)
 
         tasks.sort(key=smart_key)

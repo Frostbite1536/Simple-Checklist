@@ -4,10 +4,13 @@ Handles user preferences and application settings
 """
 
 import json
+import logging
 import os
 from typing import List, Optional, Dict, Any
 
 from ..utils.constants import Paths, Defaults
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsManager:
@@ -52,7 +55,7 @@ class SettingsManager:
                 self.settings.update(loaded_settings)
             return True
         except Exception as e:
-            print(f"Error loading settings: {e}")
+            logger.warning("Error loading settings: %s", e)
             return False
 
     def save_settings(self) -> bool:
@@ -63,11 +66,12 @@ class SettingsManager:
             True if successful, False otherwise
         """
         try:
+            os.makedirs(os.path.dirname(os.path.abspath(self.settings_file)), exist_ok=True)
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=2)
             return True
         except Exception as e:
-            print(f"Error saving settings: {e}")
+            logger.warning("Error saving settings: %s", e)
             return False
 
     def get_input_bg_color(self) -> str:

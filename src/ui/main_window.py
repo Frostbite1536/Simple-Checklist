@@ -11,6 +11,12 @@ import os
 class MainWindow:
     """Main application window with menu bar and layout"""
 
+    _noop = staticmethod(lambda *a, **kw: None)
+
+    def _cb(self, name):
+        """Get a callback by name, returning a no-op if missing"""
+        return self.callbacks.get(name, MainWindow._noop)
+
     def __init__(self, root, callbacks):
         """
         Initialize the main window
@@ -72,11 +78,11 @@ class MainWindow:
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="New Checklist",
-                             command=self.callbacks['on_new_checklist'])
+                             command=self._cb('on_new_checklist'))
         file_menu.add_command(label="Open Checklist...",
-                             command=self.callbacks['on_open_checklist'])
+                             command=self._cb('on_open_checklist'))
         file_menu.add_command(label="Save As...",
-                             command=self.callbacks['on_save_as'])
+                             command=self._cb('on_save_as'))
         file_menu.add_separator()
 
         # Recent files submenu
@@ -85,7 +91,7 @@ class MainWindow:
         self.update_recent_menu()
 
         file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.callbacks['on_exit'])
+        file_menu.add_command(label="Exit", command=self._cb('on_exit'))
 
         # Edit menu (Feature #1: Undo/Redo)
         edit_menu = tk.Menu(menubar, tearoff=0)
@@ -119,7 +125,7 @@ class MainWindow:
         settings_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Settings", menu=settings_menu)
         settings_menu.add_command(label="Change Input Box Color",
-                                 command=self.callbacks['on_change_color'])
+                                 command=self._cb('on_change_color'))
 
     def _setup_header(self):
         """Setup the header with title and action buttons"""
@@ -139,13 +145,13 @@ class MainWindow:
         export_btn = tk.Button(btn_frame, text="📥 Export MD",
                               bg='#27ae60', fg='white',
                               relief=tk.FLAT, padx=12, pady=6,
-                              command=self.callbacks['on_export_markdown'])
+                              command=self._cb('on_export_markdown'))
         export_btn.pack(side=tk.LEFT, padx=5)
 
         clear_btn = tk.Button(btn_frame, text="🗑️ Clear Done",
                              bg='#e74c3c', fg='white',
                              relief=tk.FLAT, padx=12, pady=6,
-                             command=self.callbacks['on_clear_completed'])
+                             command=self._cb('on_clear_completed'))
         clear_btn.pack(side=tk.LEFT)
 
     def update_title(self, title):
@@ -169,7 +175,7 @@ class MainWindow:
     def update_recent_menu(self):
         """Update the recent files menu"""
         self.recent_menu.delete(0, tk.END)
-        recent_files = self.callbacks['get_recent_files']()
+        recent_files = self._cb('get_recent_files')()
 
         if not recent_files:
             self.recent_menu.add_command(label="(No recent files)", state=tk.DISABLED)
@@ -178,7 +184,7 @@ class MainWindow:
                 if os.path.exists(filepath):
                     self.recent_menu.add_command(
                         label=os.path.basename(filepath),
-                        command=lambda f=filepath: self.callbacks['on_load_recent_file'](f)
+                        command=lambda f=filepath: self._cb('on_load_recent_file')(f)
                     )
                 else:
                     # Show non-existent files as disabled with indicator
@@ -199,7 +205,7 @@ class MainWindow:
         """Handle clear recent files with confirmation"""
         if messagebox.askyesno("Clear Recent Files",
                               "Clear all recent files from the list?"):
-            self.callbacks['on_clear_recent_files']()
+            self._cb('on_clear_recent_files')()
             self.update_recent_menu()
 
     def get_sidebar_container(self):

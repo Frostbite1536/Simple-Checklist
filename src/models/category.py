@@ -19,8 +19,10 @@ class Category:
             name: Display name of the category
             tasks: Optional list of Task objects
         """
+        if not name or not name.strip():
+            raise ValueError("Category name cannot be empty or whitespace-only")
         self.id = category_id
-        self.name = name
+        self.name = name.strip()
         self.tasks = tasks or []
 
     def add_task(self, task: Task) -> None:
