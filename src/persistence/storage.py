@@ -3,7 +3,6 @@ Storage management for checklists
 Handles JSON file operations for saving and loading checklists
 """
 
-import fcntl
 import glob
 import json
 import logging

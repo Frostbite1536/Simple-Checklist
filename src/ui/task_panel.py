@@ -303,7 +303,7 @@ class TaskPanel:
                 else:
                     self.selected_tasks.discard(i)
             sel_cb = tk.Checkbutton(task_widget, variable=sel_var,
-                                   bg=task_bg, activebackground='#f8f9fa',
+                                   bg=task_bg, activebackground=task_bg,
                                    selectcolor='white',
                                    command=_toggle_select)
             sel_cb.pack(side=tk.LEFT, padx=(2, 0))
@@ -342,7 +342,7 @@ class TaskPanel:
         # Checkbox with explicit styling for visibility
         var = tk.BooleanVar(value=task.completed)
         cb = tk.Checkbutton(main_row, variable=var, bg=task_bg,
-                           activebackground='#f8f9fa',
+                           activebackground=task_bg,
                            selectcolor='white',
                            command=lambda i=idx: self.on_toggle_task(i))
         cb.pack(side=tk.LEFT)
@@ -544,7 +544,7 @@ class TaskPanel:
 
             sub_var = tk.BooleanVar(value=subtask.completed)
             sub_cb = tk.Checkbutton(sub_row, variable=sub_var, bg=task_bg,
-                                   activebackground='#f8f9fa',
+                                   activebackground=task_bg,
                                    selectcolor='white',
                                    command=lambda i=task_idx, si=sub_idx:
                                    self.on_toggle_subtask(i, si))

@@ -329,12 +329,11 @@ class ChecklistApp:
 
     def _render_filtered_tasks(self, category):
         """Render only tasks matching the active filter"""
-        from datetime import datetime as dt
         for widget in self.task_panel.task_frame.winfo_children():
             widget.destroy()
         self.task_panel.task_widgets = []
 
-        today = dt.now().date()
+        today = datetime.now().date()
         for idx, task in enumerate(category.tasks):
             show = False
             if self.active_filter == 'high':
@@ -342,7 +341,7 @@ class ChecklistApp:
             elif self.active_filter == 'overdue':
                 if task.due_date and not task.completed:
                     try:
-                        due = dt.strptime(task.due_date, '%Y-%m-%d').date()
+                        due = datetime.strptime(task.due_date, '%Y-%m-%d').date()
                         show = due < today
                     except ValueError:
                         pass
@@ -537,11 +536,6 @@ class ChecklistApp:
                               "Delete this category and all its tasks?"):
             self.record_state("Delete category")
             self.checklist.remove_category(cat_id)
-            if self.checklist.current_category_id == cat_id:
-                if self.checklist.categories:
-                    self.checklist.current_category_id = self.checklist.categories[0].id
-                else:
-                    self.checklist.current_category_id = None
             self.save_data()
             self.refresh_ui()
 
